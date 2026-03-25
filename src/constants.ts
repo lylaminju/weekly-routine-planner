@@ -44,8 +44,6 @@ export const COLOR_OPTIONS = [
 export const CODE_BLOCK_LANGUAGE = "weekly-routine";
 export const MANAGED_REGION_START = "<!-- weekly-routine:start -->";
 export const MANAGED_REGION_END = "<!-- weekly-routine:end -->";
-export const LEGACY_VIEW_PATH = "5. Dev/weeklyTimetable";
-export const LEGACY_CATEGORY_PATH = "5. Dev/weeklyTimetable/categories.json";
 
 export const DEFAULT_TIMETABLE_CONFIG: TimetableConfig = {
   startHour: 6,

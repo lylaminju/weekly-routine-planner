@@ -14,7 +14,6 @@ import {
   SNAP_INTERVAL_MIN,
 } from "./constants";
 import {
-  collectLegacyRoutines,
   createEventId,
   deleteRoutineFromManagedContent,
   formatTime,
@@ -48,7 +47,6 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   private categories: CategoryRecord[] = [];
   private config: TimetableConfig = DEFAULT_TIMETABLE_CONFIG;
   private isInitialized = false;
-  private legacyRoutineCount = 0;
   private isDragging = false;
   private dragMode: DragMode = null;
   private dragStart: DragPoint | null = null;
@@ -110,7 +108,6 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     const lines = content.split("\n");
     const managedRegion = getManagedRegion(lines);
     this.isInitialized = managedRegion !== null;
-    this.legacyRoutineCount = this.isInitialized ? 0 : collectLegacyRoutines(lines).routines.length;
     this.routines = managedRegion?.collection.routines ?? [];
 
     this.render();
@@ -174,20 +171,8 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   private renderUninitializedState(root: HTMLElement): void {
     const emptyState = root.createDiv({ cls: "weekly-routine-empty" });
     emptyState.createEl("h3", { text: "Weekly routine not initialized for this note" });
-
-    const bodyText =
-      this.legacyRoutineCount > 0
-        ? `Found ${this.legacyRoutineCount} legacy routine entries. Run migration to convert this note to the plugin format.`
-        : `Add a fenced \`${CODE_BLOCK_LANGUAGE}\` block and the managed region markers ${MANAGED_REGION_START} / ${MANAGED_REGION_END}, or run the migration command on a legacy note.`;
-    emptyState.createEl("p", { text: bodyText });
-
-    const actions = emptyState.createDiv({ cls: "weekly-routine-empty-actions" });
-    const migrateButton = actions.createEl("button", {
-      cls: "timetable-toolbar-button",
-      text: "Migrate This Note",
-    });
-    migrateButton.addEventListener("click", () => {
-      void this.plugin.migrateNote(this.file);
+    emptyState.createEl("p", {
+      text: `Add a fenced \`${CODE_BLOCK_LANGUAGE}\` block and the managed region markers ${MANAGED_REGION_START} / ${MANAGED_REGION_END} to this note.`,
     });
   }
 

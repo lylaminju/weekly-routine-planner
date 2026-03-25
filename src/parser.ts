@@ -1,9 +1,7 @@
 import {
-  CODE_BLOCK_LANGUAGE,
   DAYS,
   EVENT_ID_PREFIX,
   EVENT_ID_REGEX,
-  LEGACY_VIEW_PATH,
   MANAGED_REGION_END,
   MANAGED_REGION_START,
   MINUTES_PER_HOUR,
@@ -12,12 +10,9 @@ import {
 import type {
   CategoryRecord,
   ManagedRegion,
-  MigrationResult,
   RoutineCollection,
   RoutineItem,
 } from "./types";
-
-const LEGACY_TIMETABLE_FRONTMATTER_KEYS = new Set(["startHour", "endHour", "hourHeight"]);
 
 export function formatTime(hour: number, minute: number): string {
   return `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
@@ -210,10 +205,6 @@ function collectRoutinesInRange(lines: string[], startIndex: number, endIndex: n
   };
 }
 
-export function collectLegacyRoutines(lines: string[]): RoutineCollection {
-  return collectRoutinesInRange(lines, 0, lines.length);
-}
-
 export function getManagedRegion(lines: string[]): ManagedRegion | null {
   const startMarkerIndex = lines.findIndex((line) => line.trim() === MANAGED_REGION_START);
   const endMarkerIndex = lines.findIndex(
@@ -332,147 +323,4 @@ export function rewriteCategoriesInManagedContent(
   });
 
   return rewriteManagedRoutines(content, nextRoutines);
-}
-
-function stripLegacyTimetableFrontmatter(lines: string[]): { lines: string[]; changed: boolean } {
-  if ((lines[0] ?? "").trim() !== "---") {
-    return { lines, changed: false };
-  }
-
-  const frontmatterEndIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
-  if (frontmatterEndIndex === -1) {
-    return { lines, changed: false };
-  }
-
-  const frontmatterLines = lines.slice(1, frontmatterEndIndex);
-  const retainedFrontmatterLines = frontmatterLines.filter((line) => {
-    const key = line.match(/^\s*([A-Za-z0-9_-]+)\s*:/)?.[1];
-    return !key || !LEGACY_TIMETABLE_FRONTMATTER_KEYS.has(key);
-  });
-
-  if (retainedFrontmatterLines.length === frontmatterLines.length) {
-    return { lines, changed: false };
-  }
-
-  if (retainedFrontmatterLines.every((line) => line.trim() === "")) {
-    return {
-      lines: [...lines.slice(frontmatterEndIndex + 1)],
-      changed: true,
-    };
-  }
-
-  return {
-    lines: ["---", ...retainedFrontmatterLines, "---", ...lines.slice(frontmatterEndIndex + 1)],
-    changed: true,
-  };
-}
-
-interface LegacyDataviewBlock {
-  start: number;
-  end: number;
-}
-
-function findLegacyDataviewBlock(lines: string[]): LegacyDataviewBlock | null {
-  const blockStart = lines.findIndex((line) => line.trim() === "```dataviewjs");
-  if (blockStart === -1) return null;
-
-  const blockEnd = lines.findIndex((line, index) => index > blockStart && line.trim() === "```");
-  if (blockEnd === -1) return null;
-
-  const blockBody = lines.slice(blockStart + 1, blockEnd).join("\n");
-  if (!blockBody.includes(`dv.view("${LEGACY_VIEW_PATH}"`) && !blockBody.includes(`dv.view('${LEGACY_VIEW_PATH}'`)) {
-    return null;
-  }
-
-  return { start: blockStart, end: blockEnd };
-}
-
-function replaceLegacyDataviewBlock(
-  lines: string[],
-): { lines: string[]; changed: boolean; block: LegacyDataviewBlock | null } {
-  const block = findLegacyDataviewBlock(lines);
-  if (!block) return { lines, changed: false, block: null };
-
-  const nextLines = [...lines];
-  nextLines.splice(block.start, block.end - block.start + 1, `\`\`\`${CODE_BLOCK_LANGUAGE}`, "```");
-  return {
-    lines: nextLines,
-    changed: true,
-    block: {
-      start: block.start,
-      end: block.start + 1,
-    },
-  };
-}
-
-function collectAdjacentLegacyRoutines(lines: string[], blockEndIndex: number): RoutineCollection | null {
-  let startIndex = -1;
-  let endIndex = -1;
-  let foundFirstRoutine = false;
-
-  for (let index = blockEndIndex + 1; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const trimmed = line.trim();
-    const isRoutine = parseRoutineLine(line) !== null;
-    const isSeparator = trimmed === "-";
-
-    if (!foundFirstRoutine) {
-      if (!trimmed) continue;
-      if (!isRoutine) return null;
-      foundFirstRoutine = true;
-      startIndex = index;
-      endIndex = index + 1;
-      continue;
-    }
-
-    if (isRoutine || isSeparator || !trimmed) {
-      endIndex = index + 1;
-      continue;
-    }
-
-    break;
-  }
-
-  if (!foundFirstRoutine || startIndex === -1 || endIndex === -1) return null;
-  return collectRoutinesInRange(lines, startIndex, endIndex);
-}
-
-function wrapLegacyRoutineBlock(
-  lines: string[],
-  block: LegacyDataviewBlock | null,
-): { lines: string[]; changed: boolean } {
-  if (getManagedRegion(lines)) return { lines, changed: false };
-  if (!block) return { lines, changed: false };
-
-  const legacy = collectAdjacentLegacyRoutines(lines, block.end);
-  if (!legacy || legacy.managedLineIndices.length === 0) return { lines, changed: false };
-
-  const insertionIndex = legacy.managedLineIndices[0]!;
-  const managedSet = new Set(legacy.managedLineIndices);
-  const retainedLines = lines.filter((_, index) => !managedSet.has(index));
-  const sortedRoutineLines = buildSortedRoutineLines(legacy.routines);
-  retainedLines.splice(insertionIndex, 0, MANAGED_REGION_START, ...sortedRoutineLines, MANAGED_REGION_END);
-  return { lines: retainedLines, changed: true };
-}
-
-export function migrateLegacyNoteContent(content: string): MigrationResult {
-  let lines = content.split("\n");
-  let changed = false;
-
-  const stripped = stripLegacyTimetableFrontmatter(lines);
-  lines = stripped.lines;
-  changed ||= stripped.changed;
-
-  const replaced = replaceLegacyDataviewBlock(lines);
-  lines = replaced.lines;
-  changed ||= replaced.changed;
-
-  const wrapped = wrapLegacyRoutineBlock(lines, replaced.block);
-  lines = wrapped.lines;
-  changed ||= wrapped.changed;
-
-  return {
-    changed,
-    content: lines.join("\n"),
-  };
 }

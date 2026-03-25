@@ -38,8 +38,3 @@ export interface ManagedRegion {
   endMarkerIndex: number;
   collection: RoutineCollection;
 }
-
-export interface MigrationResult {
-  changed: boolean;
-  content: string;
-}

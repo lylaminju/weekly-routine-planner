@@ -6,36 +6,22 @@ import { fileURLToPath } from "node:url";
 import {
   getManagedRegion,
   insertRoutineIntoManagedContent,
-  migrateLegacyNoteContent,
   parseRoutineLine,
   updateRoutineInManagedContent,
 } from "../src/parser";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const legacyFixturePath = path.resolve(__dirname, "fixtures/weekly-routine-legacy.md");
-const legacyFixtureContent = fs.readFileSync(legacyFixturePath, "utf8");
-const migratedNotePath = path.resolve(__dirname, "../../../../📅 Weekly Routine Planner.md");
-const migratedNoteContent = fs.readFileSync(migratedNotePath, "utf8");
+const routineFixturePath = path.resolve(__dirname, "fixtures/weekly-routine-note.md");
+const routineFixtureContent = fs.readFileSync(routineFixturePath, "utf8");
 
-test("migrateLegacyNoteContent replaces dataview block and wraps routine region", () => {
-  const migrated = migrateLegacyNoteContent(legacyFixtureContent);
-
-  assert.equal(migrated.changed, true);
-  assert.match(migrated.content, /```weekly-routine/);
-  assert.match(migrated.content, /<!-- weekly-routine:start -->/);
-  assert.match(migrated.content, /<!-- weekly-routine:end -->/);
-  assert.doesNotMatch(migrated.content, /startHour:/);
-  assert.doesNotMatch(migrated.content, /endHour:/);
-  assert.doesNotMatch(migrated.content, /hourHeight:/);
-
-  const region = getManagedRegion(migrated.content.split("\n"));
+test("managed note fixture satisfies the routine region contract", () => {
+  const region = getManagedRegion(routineFixtureContent.split("\n"));
   assert.ok(region);
   assert.equal(region.collection.routines.length > 0, true);
 });
 
-test("parser handles existing multilingual titles in the fixture", () => {
-  const migrated = migrateLegacyNoteContent(legacyFixtureContent);
-  const region = getManagedRegion(migrated.content.split("\n"));
+test("parser handles existing multilingual titles in the managed fixture", () => {
+  const region = getManagedRegion(routineFixtureContent.split("\n"));
   assert.ok(region);
 
   const workout = region.collection.routines.find(
@@ -50,11 +36,10 @@ test("parser handles existing multilingual titles in the fixture", () => {
 });
 
 test("managed inserts and updates stay within the marked region", () => {
-  const migrated = migrateLegacyNoteContent(legacyFixtureContent);
-  const region = getManagedRegion(migrated.content.split("\n"));
+  const region = getManagedRegion(routineFixtureContent.split("\n"));
   assert.ok(region);
 
-  const inserted = insertRoutineIntoManagedContent(migrated.content, {
+  const inserted = insertRoutineIntoManagedContent(routineFixtureContent, {
     eventId: "s-zz",
     day: 6,
     startHour: 9,
@@ -93,11 +78,4 @@ test("parseRoutineLine accepts the timetable line format", () => {
     title: "Deep work",
     tags: "#study",
   });
-});
-
-test("live migrated note already satisfies the managed-region contract", () => {
-  const region = getManagedRegion(migratedNoteContent.split("\n"));
-  assert.ok(region);
-  assert.equal(region.collection.routines.length > 0, true);
-  assert.equal(migrateLegacyNoteContent(migratedNoteContent).changed, false);
 });

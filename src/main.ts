@@ -1,7 +1,6 @@
-import { MarkdownView, Notice, Plugin, TFile } from "obsidian";
+import { MarkdownView, Plugin, TFile } from "obsidian";
 import { CategoryStorageAdapter } from "./category-storage";
 import { CODE_BLOCK_LANGUAGE, DEFAULT_SETTINGS } from "./constants";
-import { migrateLegacyNoteContent } from "./parser";
 import { WeeklyRoutinePlannerSettingTab } from "./settings-tab";
 import { normalizeTimetableConfig } from "./timetable-config";
 import { WeeklyRoutineRenderChild } from "./timetable-renderer";
@@ -14,7 +13,6 @@ export default class WeeklyRoutinePlannerPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
     this.categoryStorage = new CategoryStorageAdapter(
-      this.app,
       () => this.settings,
       async (settings) => {
         this.settings = settings;
@@ -34,19 +32,6 @@ export default class WeeklyRoutinePlannerPlugin extends Plugin {
     });
 
     this.addSettingTab(new WeeklyRoutinePlannerSettingTab(this.app, this));
-
-    this.addCommand({
-      id: "migrate-note-from-dataview",
-      name: "Migrate note from Dataview timetable",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveFile();
-        if (!(file instanceof TFile) || file.extension !== "md") return false;
-        if (!checking) {
-          void this.migrateNote(file);
-        }
-        return true;
-      },
-    });
   }
 
   async loadSettings(): Promise<void> {
@@ -73,30 +58,6 @@ export default class WeeklyRoutinePlannerPlugin extends Plugin {
     };
     await this.saveSettings();
     this.refreshOpenTimetables();
-  }
-
-  async migrateNote(file: TFile): Promise<void> {
-    const content = await this.app.vault.read(file);
-    const result = migrateLegacyNoteContent(content);
-    if (!result.changed) {
-      new Notice("Weekly Routine Planner: no migration changes were needed.");
-      return;
-    }
-
-    await this.app.vault.modify(file, result.content);
-    const importedCategories = await this.categoryStorage.importLegacyCategoriesIfAvailable();
-    if (importedCategories && importedCategories.length > 0) {
-      new Notice(
-        `Weekly Routine Planner: note migrated and ${importedCategories.length} legacy categories imported.`,
-      );
-    } else {
-      new Notice("Weekly Routine Planner: note migrated to plugin format.");
-    }
-
-    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (activeView?.file?.path === file.path) {
-      activeView.previewMode?.rerender(true);
-    }
   }
 
   private refreshOpenTimetables(): void {
