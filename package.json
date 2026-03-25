@@ -1,0 +1,27 @@
+{
+  "name": "weekly-routine-planner",
+  "version": "1.0.0",
+  "description": "Plan weekly routines with a timetable-style editor.",
+  "author": "Minju Park",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "node --import tsx --test test/**/*.test.ts"
+  },
+  "keywords": [
+    "obsidian-plugin",
+    "timetable"
+  ],
+  "license": "0-BSD",
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "esbuild": "0.25.5",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "obsidian": "latest"
+  }
+}
