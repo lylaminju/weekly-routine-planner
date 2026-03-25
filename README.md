@@ -19,14 +19,6 @@ Start hour, end hour, and hour height are configured in the plugin settings, not
 
 The plugin uses the marked region as the only writable routine block in the note.
 
-## Commands
-
-- `Weekly Routine Planner: Migrate note from Dataview timetable`
-
-## Migration From Dataview
-
-The migration command converts an existing DataviewJS timetable note into the fenced plugin block, wraps the routine lines with the managed markers above, and imports legacy categories from `5. Dev/weeklyTimetable/categories.json` when that file exists.
-
 ## Category Storage
 
 Categories are stored automatically in plugin data. There is no storage mode to configure.
