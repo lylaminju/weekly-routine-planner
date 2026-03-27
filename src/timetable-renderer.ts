@@ -1,4 +1,4 @@
-import { MarkdownRenderChild, Notice, TFile } from "obsidian";
+import { MarkdownRenderChild, Modal, Notice, TFile } from "obsidian";
 import {
   CODE_BLOCK_LANGUAGE,
   COLOR_OPTIONS,
@@ -48,6 +48,12 @@ interface EventPopupDraft {
   selectedCategory?: string;
 }
 
+interface ConfirmationDialogOptions {
+  title: string;
+  message: string;
+  confirmText: string;
+}
+
 export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   private routines: RoutineItem[] = [];
   private categories: CategoryRecord[] = [];
@@ -70,7 +76,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     super(containerEl);
   }
 
-  async onload(): Promise<void> {
+  onload(): void {
     this.containerEl.empty();
     this.containerEl.addClass("weekly-routine-host");
 
@@ -85,12 +91,12 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     this.registerEvent(
       this.plugin.app.vault.on("modify", (file) => {
         if (file.path === this.file.path) {
-          void this.refresh();
+          this.requestRefresh();
         }
       }),
     );
 
-    await this.refresh();
+    this.requestRefresh();
   }
 
   onunload(): void {
@@ -111,6 +117,13 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     this.routines = managedRegion?.collection.routines ?? [];
 
     this.render();
+  }
+
+  private requestRefresh(): void {
+    void this.refresh().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.showError(message);
+    });
   }
 
   private render(): void {
@@ -384,7 +397,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       preview.style.top = `${top}px`;
       preview.style.height = `${Math.max(height, this.config.hourHeight / 2)}px`;
       preview.replaceChildren();
-      preview.appendChild(Object.assign(document.createElement("div"), { className: "event-title", textContent: "New Event" }));
+      preview.appendChild(Object.assign(document.createElement("div"), { className: "event-title", textContent: "New event" }));
       return;
     }
 
@@ -444,7 +457,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       const startPoint = fromTotalMinutes(range.startTotalMinutes);
       const endPoint = fromTotalMinutes(range.endTotalMinutes);
 
-      await this.showEventPopup({
+      this.showEventPopup({
         day: this.dragCurrent.day,
         startHour: startPoint.hour,
         startMin: startPoint.min,
@@ -481,13 +494,13 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     this.draggedEventId = null;
   }
 
-  private async showEventPopup(
+  private showEventPopup(
     eventData: Omit<RoutineItem, "eventId" | "title" | "tags">,
     draft: EventPopupDraft = {},
-  ): Promise<void> {
+  ): void {
     const overlay = this.createFloatingElement("div", "event-popup-overlay");
     const popup = overlay.createDiv({ cls: "event-popup" });
-    popup.createEl("h3", { text: "New Routine" });
+    popup.createEl("h3", { text: "New routine" });
     popup.createDiv({
       cls: "event-popup-meta",
       text: `${DAYS[eventData.day]} ${formatTime(eventData.startHour, eventData.startMin)} - ${formatTime(eventData.endHour, eventData.endMin)}`,
@@ -495,7 +508,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
     const input = popup.createEl("input", {
       type: "text",
-      attr: { placeholder: "Routine Title (e.g. Deep Work)" },
+      attr: { placeholder: "Routine title (e.g. Deep work)" },
       value: draft.title ?? "",
     });
     const categorySelect = popup.createEl("select", { attr: { title: "Category" } });
@@ -508,7 +521,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     const saveButton = rightButtons.createEl("button", { cls: "save", text: "Save" });
 
     const save = async (): Promise<void> => {
-      const title = (input.value.trim() || "New Event").replace(/(#[a-zA-Z0-9_-]+)/g, "").trim();
+      const title = (input.value.trim() || "New event").replace(/(#[a-zA-Z0-9_-]+)/g, "").trim();
       const categoryId = categorySelect.value;
       const routine: RoutineItem = {
         eventId: createEventId(this.routines),
@@ -529,7 +542,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       };
       overlay.remove();
       this.floatingElements.delete(overlay);
-      void this.showCategoryManagerModal({ eventData, draft: popupDraft });
+      this.showCategoryManagerModal({ eventData, draft: popupDraft });
     });
     cancelButton.addEventListener("click", () => {
       overlay.remove();
@@ -563,19 +576,19 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     window.setTimeout(() => input.focus(), 0);
   }
 
-  private async showCategoryManagerModal(
+  private showCategoryManagerModal(
     returnToPopup?: {
       eventData: Omit<RoutineItem, "eventId" | "title" | "tags">;
       draft: EventPopupDraft;
     },
-  ): Promise<void> {
+  ): void {
     let editingCategoryId: string | null = null;
     let categoryList = [...this.categories];
 
     const overlay = this.createFloatingElement("div", "event-popup-overlay category-manager-overlay");
     const popup = overlay.createDiv({ cls: "event-popup category-manager-popup" });
 
-    popup.createEl("h3", { text: "Manage Categories" });
+    popup.createEl("h3", { text: "Manage categories" });
     popup.createDiv({
       cls: "event-popup-meta",
       text: "Create categories here, then pick them from the timetable routine popup.",
@@ -607,7 +620,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     const formActionGroup = formButtons.createDiv({ cls: "event-popup-buttons-right" });
     const saveCategoryButton = formActionGroup.createEl("button", { cls: "save", text: "Add category" });
 
-    popup.createDiv({ cls: "category-list-heading", text: "Existing Categories" });
+    popup.createDiv({ cls: "category-list-heading", text: "Existing categories" });
     const listElement = popup.createDiv({ cls: "category-list" });
 
     const footer = popup.createDiv({ cls: "event-popup-buttons" });
@@ -658,7 +671,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
         const deleteButton = actions.createEl("button", { cls: "cancel", text: "Delete" });
         deleteButton.addEventListener("click", () => {
-          void this.deleteCategory(category, usageCount, categoryList, async (nextCategories) => {
+          void this.deleteCategory(category, usageCount, categoryList, (nextCategories) => {
             categoryList = nextCategories;
             if (editingCategoryId === category.id) resetForm();
             renderCategoryList();
@@ -700,9 +713,11 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
         if (
           currentCategory.id !== nextId &&
           usageCount > 0 &&
-          !window.confirm(
-            `Rename "${currentCategory.label}" to "${label}"? This will update ${usageCount} routine${usageCount === 1 ? "" : "s"}.`,
-          )
+          !(await this.confirmAction({
+            title: "Rename category",
+            message: `Rename "${currentCategory.label}" to "${label}"? This will update ${usageCount} routine${usageCount === 1 ? "" : "s"}.`,
+            confirmText: "Rename",
+          }))
         ) {
           return;
         }
@@ -740,7 +755,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       overlay.remove();
       this.floatingElements.delete(overlay);
       if (returnToPopup) {
-        void this.showEventPopup(returnToPopup.eventData, returnToPopup.draft);
+        this.showEventPopup(returnToPopup.eventData, returnToPopup.draft);
       }
     });
     colorSelect.addEventListener("change", () => this.syncColorPreview(colorPreview, colorSelect.value));
@@ -767,13 +782,18 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     category: CategoryRecord,
     usageCount: number,
     categoryList: CategoryRecord[],
-    onDone: (categories: CategoryRecord[]) => Promise<void>,
+    onDone: (categories: CategoryRecord[]) => void,
   ): Promise<void> {
     const message =
       usageCount > 0
         ? `Delete "${category.label}"? This will remove the category from ${usageCount} routine${usageCount === 1 ? "" : "s"}.`
         : `Delete "${category.label}"?`;
-    if (!window.confirm(message)) return;
+    const shouldDelete = await this.confirmAction({
+      title: "Delete category",
+      message,
+      confirmText: "Delete",
+    });
+    if (!shouldDelete) return;
 
     const nextCategories = removeCategoryFromList(categoryList, category.id);
     await this.plugin.categoryStorage.saveCategories(nextCategories);
@@ -786,7 +806,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
   private buildCategoryOptions(selectElement: HTMLSelectElement, selectedValue = ""): void {
     selectElement.empty();
-    selectElement.appendChild(Object.assign(document.createElement("option"), { value: "", textContent: "No Category" }));
+    selectElement.appendChild(Object.assign(document.createElement("option"), { value: "", textContent: "No category" }));
     this.categories.forEach((category) => {
       const option = document.createElement("option");
       option.value = category.id;
@@ -895,8 +915,15 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   }
 
   private showError(message: string): void {
-    new Notice(`Weekly Routine Planner: ${message}`, 5000);
+    new Notice(`Weekly routine planner: ${message}`, 5000);
     console.error(`[WeeklyRoutinePlanner:${this.sourcePath}] ${message}`);
+  }
+
+  private async confirmAction(options: ConfirmationDialogOptions): Promise<boolean> {
+    return await new Promise<boolean>((resolve) => {
+      const modal = new ConfirmationModal(this.plugin.app, options, resolve);
+      modal.open();
+    });
   }
 
   private createFloatingElement<K extends keyof HTMLElementTagNameMap>(
@@ -908,5 +935,52 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     document.body.appendChild(element);
     this.floatingElements.add(element);
     return element;
+  }
+}
+
+class ConfirmationModal extends Modal {
+  private resolved = false;
+
+  constructor(
+    app: WeeklyRoutinePlannerPlugin["app"],
+    private readonly options: ConfirmationDialogOptions,
+    private readonly onResolve: (result: boolean) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h3", { text: this.options.title });
+    contentEl.createEl("p", { text: this.options.message });
+
+    const buttonRow = contentEl.createDiv({ cls: "modal-button-container" });
+    const cancelButton = buttonRow.createEl("button", { text: "Cancel" });
+    const confirmButton = buttonRow.createEl("button", {
+      cls: "mod-cta",
+      text: this.options.confirmText,
+    });
+
+    cancelButton.addEventListener("click", () => {
+      this.finish(false);
+      this.close();
+    });
+    confirmButton.addEventListener("click", () => {
+      this.finish(true);
+      this.close();
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    this.finish(false);
+  }
+
+  private finish(result: boolean): void {
+    if (this.resolved) return;
+    this.resolved = true;
+    this.onResolve(result);
   }
 }

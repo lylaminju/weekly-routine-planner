@@ -23,7 +23,7 @@ export default class WeeklyRoutinePlannerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor(CODE_BLOCK_LANGUAGE, (_source, el, ctx) => {
       const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
       if (!(file instanceof TFile)) {
-        el.setText("Weekly Routine Planner: source note not found.");
+        el.setText("Weekly routine planner: source note not found.");
         return;
       }
 

@@ -10,7 +10,7 @@ export class CategoryStorageAdapter {
     private readonly saveSettings: SaveSettings,
   ) {}
 
-  async loadCategories(): Promise<CategoryRecord[]> {
+  loadCategories(): CategoryRecord[] {
     const settings = this.getSettings();
     return settings.categories.length > 0 ? settings.categories : DEFAULT_CATEGORIES;
   }
