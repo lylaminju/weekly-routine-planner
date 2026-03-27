@@ -1,7 +1,7 @@
 {
   "id": "weekly-routine-planner",
   "name": "Weekly Routine Planner",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "1.5.0",
   "description": "Plan weekly routines with a timetable-style editor.",
   "author": "Minju Park",
