@@ -107,7 +107,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   }
 
   private async refresh(): Promise<void> {
-    this.categories = await this.plugin.categoryStorage.loadCategories();
+    this.categories = this.plugin.categoryStorage.loadCategories();
     this.config = this.plugin.settings.timetableConfig;
 
     const content = await this.plugin.app.vault.read(this.file);
@@ -600,7 +600,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     nameField.createEl("span", { text: "Category" });
     const nameInput = nameField.createEl("input", {
       type: "text",
-      attr: { placeholder: "e.g. Language Learning" },
+      attr: { placeholder: "e.g. language learning" },
     });
 
     const colorField = formGrid.createEl("label", { cls: "category-field" });
@@ -801,7 +801,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     if (usageCount > 0) {
       await this.rewriteCategories(category.id, "");
     }
-    await onDone(nextCategories);
+    onDone(nextCategories);
   }
 
   private buildCategoryOptions(selectElement: HTMLSelectElement, selectedValue = ""): void {
