@@ -5,5 +5,5 @@
   "minAppVersion": "1.5.0",
   "description": "Plan weekly routines with a timetable-style editor.",
   "author": "Minju Park",
-  "isDesktopOnly": false
+  "isDesktopOnly": true
 }

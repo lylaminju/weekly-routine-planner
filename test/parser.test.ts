@@ -79,3 +79,31 @@ test("parseRoutineLine accepts the timetable line format", () => {
     tags: "#study",
   });
 });
+
+test("parseRoutineLine rejects invalid time values and impossible ranges", () => {
+  assert.equal(
+    parseRoutineLine("- [s-a] Monday 25:99-30:00 | Invalid hours"),
+    null,
+  );
+  assert.equal(
+    parseRoutineLine("- [s-a] Monday 23:30-23:15 | Ends before start"),
+    null,
+  );
+  assert.equal(
+    parseRoutineLine("- [s-a] Monday 23:30-24:15 | Past midnight minute"),
+    null,
+  );
+  assert.deepEqual(
+    parseRoutineLine("- [s-a] Monday 23:30-24:00 | Late work"),
+    {
+      eventId: "s-a",
+      day: 0,
+      startHour: 23,
+      startMin: 30,
+      endHour: 24,
+      endMin: 0,
+      title: "Late work",
+      tags: "",
+    },
+  );
+});

@@ -7,6 +7,7 @@ import {
   MINUTES_PER_HOUR,
   ROUTINE_REGEX,
 } from "./constants";
+import { toTotalMinutes } from "./routine-logic";
 import type {
   CategoryRecord,
   ManagedRegion,
@@ -148,13 +149,37 @@ export function parseRoutineLine(line: string): RoutineItem | null {
   const dayIndex = DAYS.findIndex((day) => day.toLowerCase().startsWith(dayToken.toLowerCase()));
   if (dayIndex === -1) return null;
 
+  const startHour = Number.parseInt(match[3]!, 10);
+  const startMin = Number.parseInt(match[4]!, 10);
+  const endHour = Number.parseInt(match[5]!, 10);
+  const endMin = Number.parseInt(match[6]!, 10);
+  const startTotal = toTotalMinutes(startHour, startMin);
+  const endTotal = toTotalMinutes(endHour, endMin);
+
+  const hasInvalidHour =
+    startHour < 0 ||
+    startHour > 23 ||
+    endHour < 0 ||
+    endHour > 24;
+  const hasInvalidMinute =
+    startMin < 0 ||
+    startMin > 59 ||
+    endMin < 0 ||
+    endMin > 59;
+  const endsAfterMidnight = endHour === 24 && endMin !== 0;
+  const hasInvalidRange = endTotal <= startTotal || endTotal > toTotalMinutes(24, 0);
+
+  if (hasInvalidHour || hasInvalidMinute || endsAfterMidnight || hasInvalidRange) {
+    return null;
+  }
+
   return {
     eventId: match[1]!.toLowerCase(),
     day: dayIndex,
-    startHour: Number.parseInt(match[3]!, 10),
-    startMin: Number.parseInt(match[4]!, 10),
-    endHour: Number.parseInt(match[5]!, 10),
-    endMin: Number.parseInt(match[6]!, 10),
+    startHour,
+    startMin,
+    endHour,
+    endMin,
     title: match[7]!.trim(),
     tags: match[8]?.trim() ?? "",
   };

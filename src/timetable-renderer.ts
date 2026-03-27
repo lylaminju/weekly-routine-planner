@@ -8,10 +8,8 @@ import {
   EVENT_HEIGHT_PADDING_PX,
   MANAGED_REGION_END,
   MANAGED_REGION_START,
-  MIN_EVENT_DURATION_MIN,
   MIN_EVENT_HEIGHT_PX,
   MINUTES_PER_HOUR,
-  SNAP_INTERVAL_MIN,
 } from "./constants";
 import {
   createEventId,
@@ -21,11 +19,19 @@ import {
   getManagedRegion,
   insertRoutineIntoManagedContent,
   parseTagList,
-  replaceCategoryTag,
   rewriteCategoriesInManagedContent,
   slugifyCategoryId,
   updateRoutineInManagedContent,
 } from "./parser";
+import {
+  fromTotalMinutes,
+  getCreateRoutineRange,
+  getSnappedDragPointFromOffset,
+  moveRoutineWithinBounds,
+  removeCategoryFromList,
+  resizeRoutineWithinBounds,
+} from "./routine-logic";
+import { SerialTaskQueue } from "./serial-task-queue";
 import type WeeklyRoutinePlannerPlugin from "./main";
 import type { CategoryRecord, RoutineItem, TimetableConfig } from "./types";
 
@@ -53,6 +59,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   private dragCurrent: DragPoint | null = null;
   private draggedEventId: string | null = null;
   private floatingElements = new Set<HTMLElement>();
+  private readonly mutationQueue = new SerialTaskQueue();
 
   constructor(
     private readonly plugin: WeeklyRoutinePlannerPlugin,
@@ -77,13 +84,6 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
     this.registerEvent(
       this.plugin.app.vault.on("modify", (file) => {
-        if (file.path === this.file.path) {
-          void this.refresh();
-        }
-      }),
-    );
-    this.registerEvent(
-      this.plugin.app.metadataCache.on("changed", (file) => {
         if (file.path === this.file.path) {
           void this.refresh();
         }
@@ -244,7 +244,13 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
   private getEventElementById(eventId: string | null): HTMLElement | null {
     if (!eventId) return null;
-    return this.containerEl.querySelector(`.routine-event[data-event-id="${eventId}"]`);
+    const escapedEventId =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(eventId)
+        : eventId;
+    return this.containerEl.querySelector(
+      `.routine-event[data-event-id="${escapedEventId}"]`,
+    );
   }
 
   private hideContextMenu(): void {
@@ -302,15 +308,13 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
     const rect = cell.getBoundingClientRect();
     const day = Number.parseInt(cell.dataset.day ?? "", 10);
-    const hour = Number.parseInt(cell.dataset.hour ?? "", 10);
-    const minOffset = ((event.clientY - rect.top) / this.config.hourHeight) * MINUTES_PER_HOUR;
-    const min = Math.round(minOffset / SNAP_INTERVAL_MIN) * SNAP_INTERVAL_MIN;
+    if (Number.isNaN(day)) return;
 
-    if (Number.isNaN(day) || Number.isNaN(hour)) return;
+    const point = getSnappedDragPointFromOffset(day, event.clientY - rect.top, this.config);
 
     this.isDragging = true;
     this.dragMode = "create";
-    this.dragStart = { day, hour, min: min % MINUTES_PER_HOUR };
+    this.dragStart = point;
     this.dragCurrent = { ...this.dragStart };
     this.draggedEventId = null;
 
@@ -344,17 +348,11 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     if (targetDay === -1 || targetColumn === null) return;
 
     const rect = targetColumn.getBoundingClientRect();
-    const yOffset = event.clientY - rect.top;
-    const rawHour = this.config.startHour + yOffset / this.config.hourHeight;
-    const hour = Math.floor(rawHour);
-    const minute =
-      Math.round(((rawHour - hour) * MINUTES_PER_HOUR) / SNAP_INTERVAL_MIN) * SNAP_INTERVAL_MIN;
-
-    this.dragCurrent = {
-      day: targetDay,
-      hour: Math.max(this.config.startHour, Math.min(this.config.endHour, hour)),
-      min: minute % MINUTES_PER_HOUR,
-    };
+    this.dragCurrent = getSnappedDragPointFromOffset(
+      targetDay,
+      event.clientY - rect.top,
+      this.config,
+    );
 
     this.updateDragPreview();
   }
@@ -372,16 +370,19 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
         targetColumn.appendChild(preview);
       }
 
-      const startHour = Math.min(
-        this.dragStart.hour + this.dragStart.min / MINUTES_PER_HOUR,
-        this.dragCurrent.hour + this.dragCurrent.min / MINUTES_PER_HOUR,
+      const range = getCreateRoutineRange(
+        this.dragStart,
+        this.dragCurrent,
+        this.config,
       );
-      const endHour = Math.max(
-        this.dragStart.hour + this.dragStart.min / MINUTES_PER_HOUR,
-        this.dragCurrent.hour + this.dragCurrent.min / MINUTES_PER_HOUR,
-      );
-      preview.style.top = `${(startHour - this.config.startHour) * this.config.hourHeight}px`;
-      preview.style.height = `${Math.max((endHour - startHour) * this.config.hourHeight, this.config.hourHeight / 2)}px`;
+      const top =
+        ((range.startTotalMinutes / MINUTES_PER_HOUR) - this.config.startHour) *
+        this.config.hourHeight;
+      const height =
+        ((range.endTotalMinutes - range.startTotalMinutes) / MINUTES_PER_HOUR) *
+        this.config.hourHeight;
+      preview.style.top = `${top}px`;
+      preview.style.height = `${Math.max(height, this.config.hourHeight / 2)}px`;
       preview.replaceChildren();
       preview.appendChild(Object.assign(document.createElement("div"), { className: "event-title", textContent: "New Event" }));
       return;
@@ -389,14 +390,22 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
     if (this.dragMode === "move") {
       const eventElement = this.getEventElementById(this.draggedEventId);
-      if (!(eventElement instanceof HTMLElement)) return;
+      const routine = this.getRoutineById(this.draggedEventId);
+      if (!(eventElement instanceof HTMLElement) || !routine) return;
       const targetColumn = this.containerEl.querySelectorAll(".day-column")[this.dragCurrent.day];
       if (targetColumn instanceof HTMLElement && eventElement.parentElement !== targetColumn) {
         eventElement.remove();
         targetColumn.appendChild(eventElement);
       }
+      const movedRoutine = moveRoutineWithinBounds(
+        routine,
+        this.dragCurrent,
+        this.config,
+      );
       const top =
-        (this.dragCurrent.hour - this.config.startHour + this.dragCurrent.min / MINUTES_PER_HOUR) *
+        (movedRoutine.startHour -
+          this.config.startHour +
+          movedRoutine.startMin / MINUTES_PER_HOUR) *
         this.config.hourHeight;
       eventElement.style.top = `${Math.max(0, top)}px`;
       return;
@@ -406,11 +415,18 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       const eventElement = this.getEventElementById(this.draggedEventId);
       const routine = this.getRoutineById(this.draggedEventId);
       if (!(eventElement instanceof HTMLElement) || !routine) return;
+      const resizedRoutine = resizeRoutineWithinBounds(
+        routine,
+        this.dragCurrent,
+        this.config,
+      );
       const startOffset =
         (routine.startHour - this.config.startHour + routine.startMin / MINUTES_PER_HOUR) *
         this.config.hourHeight;
       const endOffset =
-        (this.dragCurrent.hour - this.config.startHour + this.dragCurrent.min / MINUTES_PER_HOUR) *
+        (resizedRoutine.endHour -
+          this.config.startHour +
+          resizedRoutine.endMin / MINUTES_PER_HOUR) *
         this.config.hourHeight;
       eventElement.style.height = `${Math.max(endOffset - startOffset, this.config.hourHeight / 4)}px`;
     }
@@ -424,79 +440,37 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     if (this.dragMode === "create") {
       this.containerEl.querySelector("#weekly-routine-drag-preview")?.remove();
 
-      let startHour = this.dragStart.hour;
-      let startMin = this.dragStart.min;
-      let endHour = this.dragCurrent.hour;
-      let endMin = this.dragCurrent.min;
-
-      if (startHour > endHour || (startHour === endHour && startMin > endMin)) {
-        [startHour, endHour] = [endHour, startHour];
-        [startMin, endMin] = [endMin, startMin];
-      }
-
-      if (endHour === startHour && endMin - startMin < MIN_EVENT_DURATION_MIN) {
-        endMin = startMin + MIN_EVENT_DURATION_MIN;
-        if (endMin >= MINUTES_PER_HOUR) {
-          endHour += 1;
-          endMin -= MINUTES_PER_HOUR;
-        }
-      }
+      const range = getCreateRoutineRange(this.dragStart, this.dragCurrent, this.config);
+      const startPoint = fromTotalMinutes(range.startTotalMinutes);
+      const endPoint = fromTotalMinutes(range.endTotalMinutes);
 
       await this.showEventPopup({
         day: this.dragCurrent.day,
-        startHour,
-        startMin,
-        endHour,
-        endMin,
+        startHour: startPoint.hour,
+        startMin: startPoint.min,
+        endHour: endPoint.hour,
+        endMin: endPoint.min,
       });
     } else if (this.dragMode === "move" && this.draggedEventId) {
       const routine = this.getRoutineById(this.draggedEventId);
       this.getEventElementById(this.draggedEventId)?.classList.remove("dragging");
 
       if (routine) {
-        const duration =
-          routine.endHour -
-          routine.startHour +
-          (routine.endMin - routine.startMin) / MINUTES_PER_HOUR;
-
-        const nextRoutine: RoutineItem = {
-          ...routine,
-          day: this.dragCurrent.day,
-          startHour: this.dragCurrent.hour,
-          startMin: this.dragCurrent.min,
-          endHour: this.dragCurrent.hour + Math.floor(duration),
-          endMin: this.dragCurrent.min + Math.round((duration % 1) * MINUTES_PER_HOUR),
-        };
-
-        if (nextRoutine.endMin >= MINUTES_PER_HOUR) {
-          nextRoutine.endHour += 1;
-          nextRoutine.endMin -= MINUTES_PER_HOUR;
-        }
-
+        const nextRoutine = moveRoutineWithinBounds(
+          routine,
+          this.dragCurrent,
+          this.config,
+        );
         await this.updateRoutine(nextRoutine);
       }
     } else if (this.dragMode === "resize" && this.draggedEventId) {
       const routine = this.getRoutineById(this.draggedEventId);
       if (routine) {
-        const nextRoutine: RoutineItem = {
-          ...routine,
-          endHour: this.dragCurrent.hour,
-          endMin: this.dragCurrent.min,
-        };
-
-        const duration =
-          nextRoutine.endHour -
-          nextRoutine.startHour +
-          (nextRoutine.endMin - nextRoutine.startMin) / MINUTES_PER_HOUR;
-        if (duration < SNAP_INTERVAL_MIN / MINUTES_PER_HOUR) {
-          nextRoutine.endHour = nextRoutine.startHour;
-          nextRoutine.endMin = nextRoutine.startMin + SNAP_INTERVAL_MIN;
-          if (nextRoutine.endMin >= MINUTES_PER_HOUR) {
-            nextRoutine.endHour += 1;
-            nextRoutine.endMin -= MINUTES_PER_HOUR;
-          }
-        }
-
+        const nextRoutine = resizeRoutineWithinBounds(
+          routine,
+          this.dragCurrent,
+          this.config,
+        );
         await this.updateRoutine(nextRoutine);
       }
     }
@@ -684,7 +658,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
         const deleteButton = actions.createEl("button", { cls: "cancel", text: "Delete" });
         deleteButton.addEventListener("click", () => {
-          void this.deleteCategory(category, usageCount, async (nextCategories) => {
+          void this.deleteCategory(category, usageCount, categoryList, async (nextCategories) => {
             categoryList = nextCategories;
             if (editingCategoryId === category.id) resetForm();
             renderCategoryList();
@@ -737,22 +711,22 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
           category.id === currentCategory.id ? { id: nextId, label, color } : category,
         );
         await this.plugin.categoryStorage.saveCategories(nextCategories);
+        this.categories = nextCategories;
         if (currentCategory.id !== nextId) {
           await this.rewriteCategories(currentCategory.id, nextId);
         }
         categoryList = nextCategories;
         renderCategoryList();
         resetForm();
-        await this.refresh();
         return;
       }
 
       const nextCategories = [...categoryList, { id: nextId, label, color }];
       await this.plugin.categoryStorage.saveCategories(nextCategories);
+      this.categories = nextCategories;
       categoryList = nextCategories;
       renderCategoryList();
       resetForm();
-      await this.refresh();
     };
 
     cancelEditButton.addEventListener("click", () => {
@@ -792,6 +766,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   private async deleteCategory(
     category: CategoryRecord,
     usageCount: number,
+    categoryList: CategoryRecord[],
     onDone: (categories: CategoryRecord[]) => Promise<void>,
   ): Promise<void> {
     const message =
@@ -800,12 +775,12 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
         : `Delete "${category.label}"?`;
     if (!window.confirm(message)) return;
 
-    const nextCategories = this.categories.filter((item) => item.id !== category.id);
+    const nextCategories = removeCategoryFromList(categoryList, category.id);
     await this.plugin.categoryStorage.saveCategories(nextCategories);
+    this.categories = nextCategories;
     if (usageCount > 0) {
       await this.rewriteCategories(category.id, "");
     }
-    await this.refresh();
     await onDone(nextCategories);
   }
 
@@ -907,10 +882,12 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
   private async mutateFile(transform: (content: string) => string): Promise<void> {
     try {
-      const content = await this.plugin.app.vault.read(this.file);
-      const nextContent = transform(content);
-      await this.plugin.app.vault.modify(this.file, nextContent);
-      await this.refresh();
+      await this.mutationQueue.run(async () => {
+        const content = await this.plugin.app.vault.read(this.file);
+        const nextContent = transform(content);
+        if (nextContent === content) return;
+        await this.plugin.app.vault.modify(this.file, nextContent);
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.showError(message);

@@ -63,6 +63,7 @@ export default class WeeklyRoutinePlannerPlugin extends Plugin {
   private refreshOpenTimetables(): void {
     this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
       if (leaf.view instanceof MarkdownView) {
+        // Obsidian does not expose a public preview rerender API for settings-only changes.
         leaf.view.previewMode?.rerender(true);
       }
     });
