@@ -600,7 +600,6 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     nameField.createEl("span", { text: "Category" });
     const nameInput = nameField.createEl("input", {
       type: "text",
-      attr: { placeholder: "e.g. language learning" },
     });
 
     const colorField = formGrid.createEl("label", { cls: "category-field" });
