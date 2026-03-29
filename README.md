@@ -2,10 +2,9 @@
 
 An Obsidian plugin for planning weekly routines with a timetable-style editor and a fenced `weekly-routine` block.
 
-It is meant for repeatable weekly routine planning, not dated calendar events or one-off schedules.
-It is currently desktop-only.
+It is meant for recurring weekly structure, not dated calendar events or one-off schedules. The plugin is currently desktop-only.
 
-Start hour, end hour, and hour height are configured in the plugin settings, not note frontmatter.
+Start hour, end hour, and hour height are configured in the plugin settings.
 
 ## Note Format
 
@@ -18,8 +17,27 @@ Start hour, end hour, and hour height are configured in the plugin settings, not
 <!-- weekly-routine:end -->
 ~~~
 
-The plugin uses the marked region as the only writable routine block in the note.
+The fenced code block marks the note as a weekly routine planner note.
+The plugin only writes inside the region between `<!-- weekly-routine:start -->` and `<!-- weekly-routine:end -->`, so the rest of the note stays untouched.
 
-## Category Storage
+Each routine line is stored as:
 
-Categories are stored automatically in plugin data. There is no storage mode to configure.
+~~~md
+- [event-id] Day HH:MM-HH:MM | Title | #category-tag
+~~~
+
+## Category Management
+
+Categories are managed by the user from the timetable UI:
+
+1. Click `Manage categories` in the timetable toolbar.
+2. Add, rename, recolor, or delete categories.
+
+The same category manager is also available while creating or editing a routine.
+
+Category definitions are saved in the plugin's data/settings, not directly in the note.
+Inside the note, a routine only stores the selected category as a tag such as `#daily-routine`.
+
+The category id is generated from the category name, so `Daily Routine` becomes `#daily-routine`.
+If you rename a category, the plugin updates matching tags in the managed routine block.
+If you delete a category, the plugin removes that category tag from affected routines.
