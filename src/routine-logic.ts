@@ -68,6 +68,15 @@ export function getSnappedDragPointFromOffset(
   };
 }
 
+export function getSnappedDragPointFromColumnClientY(
+  day: number,
+  clientY: number,
+  columnTop: number,
+  config: TimetableConfig,
+): RoutineDragPoint {
+  return getSnappedDragPointFromOffset(day, clientY - columnTop, config);
+}
+
 export function getCreateRoutineRange(
   start: RoutineDragPoint,
   current: RoutineDragPoint,

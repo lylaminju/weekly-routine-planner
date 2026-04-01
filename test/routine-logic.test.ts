@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getCreateRoutineRange,
+  getSnappedDragPointFromColumnClientY,
   getSnappedDragPointFromOffset,
   moveRoutineWithinBounds,
   removeCategoryFromList,
@@ -37,6 +38,26 @@ test("getSnappedDragPointFromOffset clamps and normalizes to timetable bounds", 
     day: 2,
     hour: 24,
     min: 0,
+  });
+});
+
+test("getSnappedDragPointFromColumnClientY preserves the full column position", () => {
+  const columnTop = 300;
+  const clientY = columnTop + 456;
+
+  assert.deepEqual(
+    getSnappedDragPointFromColumnClientY(2, clientY, columnTop, config),
+    {
+      day: 2,
+      hour: 15,
+      min: 30,
+    },
+  );
+
+  assert.deepEqual(getSnappedDragPointFromOffset(2, 24, config), {
+    day: 2,
+    hour: 6,
+    min: 30,
   });
 });
 

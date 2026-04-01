@@ -26,6 +26,7 @@ import {
 import {
   fromTotalMinutes,
   getCreateRoutineRange,
+  getSnappedDragPointFromColumnClientY,
   getSnappedDragPointFromOffset,
   moveRoutineWithinBounds,
   removeCategoryFromList,
@@ -319,11 +320,19 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     const cell = event.target.closest(".hour-cell");
     if (!(cell instanceof HTMLElement)) return;
 
-    const rect = cell.getBoundingClientRect();
+    const column = cell.closest(".day-column");
+    if (!(column instanceof HTMLElement)) return;
+
+    const rect = column.getBoundingClientRect();
     const day = Number.parseInt(cell.dataset.day ?? "", 10);
     if (Number.isNaN(day)) return;
 
-    const point = getSnappedDragPointFromOffset(day, event.clientY - rect.top, this.config);
+    const point = getSnappedDragPointFromColumnClientY(
+      day,
+      event.clientY,
+      rect.top,
+      this.config,
+    );
 
     this.isDragging = true;
     this.dragMode = "create";
@@ -334,7 +343,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     const preview = document.createElement("div");
     preview.className = "routine-event creating";
     preview.id = "weekly-routine-drag-preview";
-    cell.closest(".day-column")?.appendChild(preview);
+    column.appendChild(preview);
     this.updateDragPreview();
     event.preventDefault();
   }
