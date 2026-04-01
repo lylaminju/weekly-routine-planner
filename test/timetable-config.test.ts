@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeTimetableConfig } from "../src/timetable-config";
 
-test("normalizeTimetableConfig parses and clamps settings values", () => {
+void test("normalizeTimetableConfig parses and clamps settings values", () => {
   const config = normalizeTimetableConfig({
     startHour: "6",
     endHour: "25",
@@ -16,7 +16,7 @@ test("normalizeTimetableConfig parses and clamps settings values", () => {
   });
 });
 
-test("normalizeTimetableConfig keeps end hour after start hour", () => {
+void test("normalizeTimetableConfig keeps end hour after start hour", () => {
   const config = normalizeTimetableConfig({
     startHour: 23,
     endHour: 20,

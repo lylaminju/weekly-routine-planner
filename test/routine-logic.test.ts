@@ -28,7 +28,7 @@ const sampleRoutine: RoutineItem = {
   tags: "#study",
 };
 
-test("getSnappedDragPointFromOffset clamps and normalizes to timetable bounds", () => {
+void test("getSnappedDragPointFromOffset clamps and normalizes to timetable bounds", () => {
   assert.deepEqual(getSnappedDragPointFromOffset(2, -100, config), {
     day: 2,
     hour: 6,
@@ -41,7 +41,7 @@ test("getSnappedDragPointFromOffset clamps and normalizes to timetable bounds", 
   });
 });
 
-test("getSnappedDragPointFromColumnClientY preserves the full column position", () => {
+void test("getSnappedDragPointFromColumnClientY preserves the full column position", () => {
   const columnTop = 300;
   const clientY = columnTop + 456;
 
@@ -61,7 +61,7 @@ test("getSnappedDragPointFromColumnClientY preserves the full column position", 
   });
 });
 
-test("getCreateRoutineRange enforces minimum duration near the timetable end", () => {
+void test("getCreateRoutineRange enforces minimum duration near the timetable end", () => {
   const range = getCreateRoutineRange(
     { day: 0, hour: 23, min: 45 },
     { day: 0, hour: 24, min: 0 },
@@ -74,7 +74,7 @@ test("getCreateRoutineRange enforces minimum duration near the timetable end", (
   });
 });
 
-test("moveRoutineWithinBounds preserves duration and clamps to the timetable end", () => {
+void test("moveRoutineWithinBounds preserves duration and clamps to the timetable end", () => {
   const moved = moveRoutineWithinBounds(
     sampleRoutine,
     { day: 1, hour: 23, min: 30 },
@@ -99,7 +99,7 @@ test("moveRoutineWithinBounds preserves duration and clamps to the timetable end
   );
 });
 
-test("resizeRoutineWithinBounds respects minimum duration and timetable bounds", () => {
+void test("resizeRoutineWithinBounds respects minimum duration and timetable bounds", () => {
   const resized = resizeRoutineWithinBounds(
     sampleRoutine,
     { day: 0, hour: 22, min: 35 },
@@ -133,7 +133,7 @@ test("resizeRoutineWithinBounds respects minimum duration and timetable bounds",
   );
 });
 
-test("removeCategoryFromList preserves the current local modal state", () => {
+void test("removeCategoryFromList preserves the current local modal state", () => {
   const categories = [
     { id: "daily-routine", label: "Daily Routine", color: "cyan" },
     { id: "study", label: "Study", color: "green" },
@@ -146,7 +146,7 @@ test("removeCategoryFromList preserves the current local modal state", () => {
   ]);
 });
 
-test("SerialTaskQueue runs mutations sequentially", async () => {
+void test("SerialTaskQueue runs mutations sequentially", async () => {
   const queue = new SerialTaskQueue();
   const order: string[] = [];
   let releaseFirst: () => void = () => {

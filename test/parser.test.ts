@@ -14,13 +14,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const routineFixturePath = path.resolve(__dirname, "fixtures/weekly-routine-note.md");
 const routineFixtureContent = fs.readFileSync(routineFixturePath, "utf8");
 
-test("managed note fixture satisfies the routine region contract", () => {
+void test("managed note fixture satisfies the routine region contract", () => {
   const region = getManagedRegion(routineFixtureContent.split("\n"));
   assert.ok(region);
   assert.equal(region.collection.routines.length > 0, true);
 });
 
-test("parser handles existing multilingual titles in the managed fixture", () => {
+void test("parser handles existing multilingual titles in the managed fixture", () => {
   const region = getManagedRegion(routineFixtureContent.split("\n"));
   assert.ok(region);
 
@@ -35,7 +35,7 @@ test("parser handles existing multilingual titles in the managed fixture", () =>
   assert.match(workout.title, /상체 운동/);
 });
 
-test("managed inserts and updates stay within the marked region", () => {
+void test("managed inserts and updates stay within the marked region", () => {
   const region = getManagedRegion(routineFixtureContent.split("\n"));
   assert.ok(region);
 
@@ -66,7 +66,7 @@ test("managed inserts and updates stay within the marked region", () => {
   assert.equal(updatedRegion.collection.routines.some((routine) => routine.title === "Updated title"), true);
 });
 
-test("parseRoutineLine accepts the timetable line format", () => {
+void test("parseRoutineLine accepts the timetable line format", () => {
   const parsed = parseRoutineLine("- [s-a] Monday 08:00-09:30 | Deep work | #study");
   assert.deepEqual(parsed, {
     eventId: "s-a",
@@ -80,7 +80,7 @@ test("parseRoutineLine accepts the timetable line format", () => {
   });
 });
 
-test("parseRoutineLine rejects invalid time values and impossible ranges", () => {
+void test("parseRoutineLine rejects invalid time values and impossible ranges", () => {
   assert.equal(
     parseRoutineLine("- [s-a] Monday 25:99-30:00 | Invalid hours"),
     null,
