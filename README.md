@@ -6,6 +6,27 @@ It is meant for recurring weekly structure, not dated calendar events or one-off
 
 Start hour, end hour, and hour height are configured in the plugin settings.
 
+## Installation
+
+This plugin is currently under review for the Obsidian Community Plugin directory. Once approved, you will be able to install it directly from **Settings → Community plugins** in Obsidian. Until then, you can install it manually:
+
+1. Clone or download this repository.
+   ```bash
+   git clone https://github.com/lylaminju/weekly-routine-planner.git
+   ```
+2. Locate your vault's plugin folder. It is at `<your-vault>/.obsidian/plugins/`. Create the `plugins` directory if it does not exist.
+3. Copy `main.js`, `manifest.json`, and `styles.css` from the cloned repository into a new folder:
+   ```bash
+   mkdir -p <your-vault>/.obsidian/plugins/weekly-routine-planner
+   cp main.js manifest.json styles.css <your-vault>/.obsidian/plugins/weekly-routine-planner/
+   ```
+4. Add `"weekly-routine-planner"` to the array in `<your-vault>/.obsidian/community-plugins.json`. If the file does not exist, create it with:
+   ```json
+   ["weekly-routine-planner"]
+   ```
+5. Restart Obsidian (or reload without cache: `Ctrl/Cmd + Shift + R` on desktop).
+6. Go to **Settings → Community plugins**, find **Weekly Routine Planner** in the list, and enable it.
+
 ## Note Format
 
 ~~~md
