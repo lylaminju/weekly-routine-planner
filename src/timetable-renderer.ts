@@ -83,11 +83,12 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
     this.registerDomEvent(this.containerEl, "mousedown", (event) => this.handleMouseDown(event));
     this.registerDomEvent(this.containerEl, "contextmenu", (event) => this.handleContextMenu(event));
-    this.registerDomEvent(document, "mousemove", (event) => this.handleMouseMove(event));
-    this.registerDomEvent(document, "mouseup", () => {
+    const ownerDocument = this.containerEl.ownerDocument;
+    this.registerDomEvent(ownerDocument, "mousemove", (event) => this.handleMouseMove(event));
+    this.registerDomEvent(ownerDocument, "mouseup", () => {
       void this.handleMouseUp();
     });
-    this.registerDomEvent(document, "click", () => this.hideContextMenu());
+    this.registerDomEvent(ownerDocument, "click", () => this.hideContextMenu());
 
     this.registerEvent(
       this.plugin.app.vault.on("modify", (file) => {
@@ -191,7 +192,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   }
 
   private createEventElement(routine: RoutineItem): HTMLElement {
-    const element = document.createElement("div");
+    const element = this.containerEl.ownerDocument.createElement("div");
     element.className = "routine-event";
     element.dataset.eventId = routine.eventId;
 
@@ -207,18 +208,12 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     element.style.top = `${startOffset}px`;
     element.style.height = `${Math.max(height - EVENT_HEIGHT_PADDING_PX, MIN_EVENT_HEIGHT_PX)}px`;
 
-    const title = document.createElement("div");
-    title.className = "event-title";
-    title.textContent = routine.title;
-
-    const time = document.createElement("div");
-    time.className = "event-time";
-    time.textContent = `${formatTime(routine.startHour, routine.startMin)} - ${formatTime(routine.endHour, routine.endMin)}`;
-
-    const resizeHandle = document.createElement("div");
-    resizeHandle.className = "event-resize-handle";
-
-    element.append(title, time, resizeHandle);
+    element.createDiv({ cls: "event-title", text: routine.title });
+    element.createDiv({
+      cls: "event-time",
+      text: `${formatTime(routine.startHour, routine.startMin)} - ${formatTime(routine.endHour, routine.endMin)}`,
+    });
+    element.createDiv({ cls: "event-resize-handle" });
     this.applyCategoryStyle(element, routine.tags);
     return element;
   }
@@ -340,10 +335,8 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     this.dragCurrent = { ...this.dragStart };
     this.draggedEventId = null;
 
-    const preview = document.createElement("div");
-    preview.className = "routine-event creating";
+    const preview = column.createDiv({ cls: "routine-event creating" });
     preview.id = "weekly-routine-drag-preview";
-    column.appendChild(preview);
     this.updateDragPreview();
     event.preventDefault();
   }
@@ -405,8 +398,8 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
         this.config.hourHeight;
       preview.style.top = `${top}px`;
       preview.style.height = `${Math.max(height, this.config.hourHeight / 2)}px`;
-      preview.replaceChildren();
-      preview.appendChild(Object.assign(document.createElement("div"), { className: "event-title", textContent: "New event" }));
+      preview.empty();
+      preview.createDiv({ cls: "event-title", text: "New event" });
       return;
     }
 
@@ -606,15 +599,15 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     const formGrid = popup.createDiv({ cls: "category-form-grid" });
 
     const nameField = formGrid.createEl("label", { cls: "category-field" });
-    nameField.createEl("span", { text: "Category" });
+    nameField.createSpan({ text: "Category" });
     const nameInput = nameField.createEl("input", {
       type: "text",
     });
 
     const colorField = formGrid.createEl("label", { cls: "category-field" });
-    colorField.createEl("span", { text: "Color" });
+    colorField.createSpan({ text: "Color" });
     const colorRow = colorField.createDiv({ cls: "color-select-row" });
-    const colorPreview = colorRow.createEl("span", { cls: "category-swatch color-preview" });
+    const colorPreview = colorRow.createSpan({ cls: "category-swatch color-preview" });
     const colorSelect = colorRow.createEl("select");
     this.buildColorOptions(colorSelect);
     this.syncColorPreview(colorPreview, colorSelect.value);
@@ -663,7 +656,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
         });
 
         const actions = row.createDiv({ cls: "category-row-actions" });
-        actions.createEl("span", { cls: `category-swatch is-${category.color}` });
+        actions.createSpan({ cls: `category-swatch is-${category.color}` });
 
         const editButton = actions.createEl("button", { cls: "secondary", text: "Edit" });
         editButton.addEventListener("click", () => {
@@ -814,12 +807,9 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
   private buildCategoryOptions(selectElement: HTMLSelectElement, selectedValue = ""): void {
     selectElement.empty();
-    selectElement.appendChild(Object.assign(document.createElement("option"), { value: "", textContent: "No category" }));
+    selectElement.createEl("option", { value: "", text: "No category" });
     this.categories.forEach((category) => {
-      const option = document.createElement("option");
-      option.value = category.id;
-      option.textContent = category.label;
-      selectElement.appendChild(option);
+      selectElement.createEl("option", { value: category.id, text: category.label });
     });
     selectElement.value = this.getCategoryById(selectedValue) ? selectedValue : "";
   }
@@ -827,10 +817,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   private buildColorOptions(selectElement: HTMLSelectElement, selectedValue = COLOR_OPTIONS[0] as string): void {
     selectElement.empty();
     COLOR_OPTIONS.forEach((color) => {
-      const option = document.createElement("option");
-      option.value = color;
-      option.textContent = formatTitleCase(color);
-      selectElement.appendChild(option);
+      selectElement.createEl("option", { value: color, text: formatTitleCase(color) });
     });
     selectElement.value = COLOR_OPTIONS.includes(selectedValue as (typeof COLOR_OPTIONS)[number])
       ? selectedValue
@@ -938,9 +925,9 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     tagName: K,
     className: string,
   ): HTMLElementTagNameMap[K] {
-    const element = document.createElement(tagName);
+    const element = this.containerEl.ownerDocument.createElement(tagName);
     element.className = className;
-    document.body.appendChild(element);
+    this.containerEl.ownerDocument.body.appendChild(element);
     this.floatingElements.add(element);
     return element;
   }
