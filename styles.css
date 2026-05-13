@@ -1,4 +1,13 @@
 .weekly-routine {
+  --color-blue: #4a90d9;
+  --color-purple: #8e44ad;
+  --color-green: #27ae60;
+  --color-orange: #e67e22;
+  --color-yellow: #f1c40f;
+  --color-red: #e74c3c;
+  --color-pink: #ff69b4;
+  --color-cyan: #00bcd4;
+  --color-gray: #7f8c8d;
   font-family: var(--font-interface);
   user-select: none;
   -webkit-user-select: none;
@@ -125,18 +134,6 @@
 .weekly-routine .day-column[data-day="5"],
 .weekly-routine .day-column[data-day="6"] {
   background: var(--background-secondary-alt);
-}
-
-.weekly-routine {
-  --color-blue: #4a90d9;
-  --color-purple: #8e44ad;
-  --color-green: #27ae60;
-  --color-orange: #e67e22;
-  --color-yellow: #f1c40f;
-  --color-red: #e74c3c;
-  --color-pink: #ff69b4;
-  --color-cyan: #00bcd4;
-  --color-gray: #7f8c8d;
 }
 
 .weekly-routine .routine-event {
