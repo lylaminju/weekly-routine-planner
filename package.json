@@ -1,6 +1,6 @@
 {
   "name": "weekly-routine-planner",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Plan weekly routines with a timetable-style editor.",
   "author": "Minju Park",
   "main": "main.js",
