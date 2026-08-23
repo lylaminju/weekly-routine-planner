@@ -6,6 +6,7 @@ import {
   DAYS,
   DEFAULT_TIMETABLE_CONFIG,
   EVENT_HEIGHT_PADDING_PX,
+  EVENT_ID_PREFIX,
   MANAGED_REGION_END,
   MANAGED_REGION_START,
   MIN_EVENT_HEIGHT_PX,
@@ -21,6 +22,7 @@ import {
   parseTagList,
   rewriteCategoriesInManagedContent,
   slugifyCategoryId,
+  slugifyEventIdSuffix,
   updateRoutineInManagedContent,
 } from "./parser";
 import {
@@ -47,6 +49,7 @@ interface DragPoint {
 interface EventPopupDraft {
   title?: string;
   selectedCategory?: string;
+  eventId?: string;
 }
 
 interface ConfirmationDialogOptions {
@@ -67,14 +70,20 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   private draggedEventId: string | null = null;
   private floatingElements = new Set<HTMLElement>();
   private readonly mutationQueue = new SerialTaskQueue();
+  private activeCategoryFilter: Set<string>;
+  private isFilterPanelOpen = false;
 
   constructor(
     private readonly plugin: WeeklyRoutinePlannerPlugin,
     containerEl: HTMLElement,
     private readonly file: TFile,
     private readonly sourcePath: string,
+    initialCategoryFilter: string[] = [],
   ) {
     super(containerEl);
+    this.activeCategoryFilter = new Set(
+      initialCategoryFilter.map((id) => (id === "uncategorized" ? "" : id)),
+    );
   }
 
   onload(): void {
@@ -88,7 +97,13 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     this.registerDomEvent(ownerDocument, "mouseup", () => {
       void this.handleMouseUp();
     });
-    this.registerDomEvent(ownerDocument, "click", () => this.hideContextMenu());
+    this.registerDomEvent(ownerDocument, "click", () => {
+      this.hideContextMenu();
+      if (this.isFilterPanelOpen) {
+        this.isFilterPanelOpen = false;
+        this.render();
+      }
+    });
 
     this.registerEvent(
       this.plugin.app.vault.on("modify", (file) => {
@@ -142,6 +157,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
     const container = root.createDiv({ cls: "timetable-container" });
     const toolbar = container.createDiv({ cls: "timetable-toolbar" });
+    this.renderFilterControl(toolbar);
     toolbar.createDiv({ cls: "timetable-toolbar-spacer" });
 
     const manageCategoriesButton = toolbar.createEl("button", {
@@ -179,8 +195,65 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
       this.routines
         .filter((routine) => routine.day === dayIndex)
+        .filter((routine) => this.matchesActiveFilter(routine))
         .forEach((routine) => dayColumn.appendChild(this.createEventElement(routine)));
     }
+  }
+
+  private renderFilterControl(toolbar: HTMLElement): void {
+    const wrapper = toolbar.createDiv({ cls: "timetable-filter" });
+    const toggleButton = wrapper.createEl("button", {
+      cls: "timetable-toolbar-button",
+      text: this.activeCategoryFilter.size > 0 ? `Filter (${this.activeCategoryFilter.size})` : "Filter",
+    });
+
+    const panel = wrapper.createDiv({ cls: "timetable-filter-panel" });
+    panel.hidden = !this.isFilterPanelOpen;
+
+    const options: Array<{ id: string; label: string; color?: string }> = [
+      ...this.categories.map((category) => ({
+        id: category.id,
+        label: category.label,
+        color: category.color,
+      })),
+      { id: "", label: "Uncategorized" },
+    ];
+
+    options.forEach((option) => {
+      const row = panel.createEl("label", { cls: "timetable-filter-option" });
+      const checkbox = row.createEl("input", { type: "checkbox" });
+      checkbox.checked = this.activeCategoryFilter.has(option.id);
+      if (option.color) row.createSpan({ cls: `category-swatch is-${option.color}` });
+      row.createSpan({ text: option.label });
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) this.activeCategoryFilter.add(option.id);
+        else this.activeCategoryFilter.delete(option.id);
+        this.render();
+      });
+    });
+
+    if (this.activeCategoryFilter.size > 0) {
+      const clearButton = panel.createEl("button", {
+        cls: "secondary timetable-filter-clear",
+        text: "Clear filters",
+      });
+      clearButton.addEventListener("click", () => {
+        this.activeCategoryFilter.clear();
+        this.render();
+      });
+    }
+
+    toggleButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.isFilterPanelOpen = !this.isFilterPanelOpen;
+      this.render();
+    });
+    panel.addEventListener("click", (event) => event.stopPropagation());
+  }
+
+  private matchesActiveFilter(routine: RoutineItem): boolean {
+    if (this.activeCategoryFilter.size === 0) return true;
+    return this.activeCategoryFilter.has(this.getCategoryIdFromTags(routine.tags) ?? "");
   }
 
   private renderUninitializedState(root: HTMLElement): void {
@@ -508,6 +581,16 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       text: `${DAYS[eventData.day]} ${formatTime(eventData.startHour, eventData.startMin)} - ${formatTime(eventData.endHour, eventData.endMin)}`,
     });
 
+    const idField = popup.createEl("label", { cls: "event-popup-id-field" });
+    idField.createSpan({ text: "ID" });
+    const idRow = idField.createDiv({ cls: "event-popup-id-row" });
+    idRow.createSpan({ cls: "event-popup-id-prefix", text: EVENT_ID_PREFIX });
+    const idInput = idRow.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Unique routine ID" },
+      value: draft.eventId ?? slugifyEventIdSuffix(createEventId(this.routines)),
+    });
+
     const input = popup.createEl("input", {
       type: "text",
       attr: { placeholder: "Routine title (e.g. Deep work)" },
@@ -523,10 +606,23 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     const saveButton = rightButtons.createEl("button", { cls: "save", text: "Save" });
 
     const save = async (): Promise<void> => {
+      const suffix = slugifyEventIdSuffix(idInput.value);
+      if (!suffix) {
+        this.showError("Routine ID is required");
+        idInput.focus();
+        return;
+      }
+      const eventId = `${EVENT_ID_PREFIX}${suffix}`;
+      if (this.routines.some((routine) => routine.eventId === eventId)) {
+        this.showError(`Routine ID "${eventId}" is already used`);
+        idInput.focus();
+        return;
+      }
+
       const title = (input.value.trim() || "New event").replace(/(#[a-zA-Z0-9_-]+)/g, "").trim();
       const categoryId = categorySelect.value;
       const routine: RoutineItem = {
-        eventId: createEventId(this.routines),
+        eventId,
         title,
         tags: categoryId ? `#${categoryId}` : "",
         ...eventData,
@@ -541,6 +637,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       const popupDraft = {
         title: input.value,
         selectedCategory: categorySelect.value,
+        eventId: idInput.value,
       };
       overlay.remove();
       this.floatingElements.delete(overlay);
@@ -554,6 +651,13 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       void save();
     });
 
+    idInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") void save();
+      if (event.key === "Escape") {
+        overlay.remove();
+        this.floatingElements.delete(overlay);
+      }
+    });
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") void save();
       if (event.key === "Escape") {

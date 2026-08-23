@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import {
   getManagedRegion,
   insertRoutineIntoManagedContent,
+  parseFilterDirective,
   parseRoutineLine,
+  slugifyEventIdSuffix,
   updateRoutineInManagedContent,
 } from "../src/parser";
 
@@ -106,4 +108,24 @@ void test("parseRoutineLine rejects invalid time values and impossible ranges", 
       tags: "",
     },
   );
+});
+
+void test("slugifyEventIdSuffix normalizes user-typed routine IDs", () => {
+  assert.equal(slugifyEventIdSuffix("Gym Day!"), "gymday");
+  assert.equal(slugifyEventIdSuffix("s-work"), "work");
+  assert.equal(slugifyEventIdSuffix("  Work-1  "), "work1");
+  assert.equal(slugifyEventIdSuffix("---"), "");
+});
+
+void test("parseFilterDirective extracts category ids from the filter directive", () => {
+  assert.deepEqual(parseFilterDirective("filter: [study, part-time-work]"), [
+    "study",
+    "part-time-work",
+  ]);
+  assert.deepEqual(parseFilterDirective("filter:[Study,  Part Time Work ]"), [
+    "study",
+    "part-time-work",
+  ]);
+  assert.deepEqual(parseFilterDirective(""), []);
+  assert.deepEqual(parseFilterDirective("filter: []"), []);
 });
