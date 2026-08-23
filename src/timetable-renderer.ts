@@ -24,6 +24,7 @@ import {
   slugifyCategoryId,
   slugifyEventIdSuffix,
   updateRoutineInManagedContent,
+  writeFilterDirectiveInContent,
 } from "./parser";
 import {
   fromTotalMinutes,
@@ -71,7 +72,6 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   private floatingElements = new Set<HTMLElement>();
   private readonly mutationQueue = new SerialTaskQueue();
   private activeCategoryFilter: Set<string>;
-  private isFilterPanelOpen = false;
 
   constructor(
     private readonly plugin: WeeklyRoutinePlannerPlugin,
@@ -99,10 +99,6 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     });
     this.registerDomEvent(ownerDocument, "click", () => {
       this.hideContextMenu();
-      if (this.isFilterPanelOpen) {
-        this.isFilterPanelOpen = false;
-        this.render();
-      }
     });
 
     this.registerEvent(
@@ -201,15 +197,20 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   }
 
   private renderFilterControl(toolbar: HTMLElement): void {
-    const wrapper = toolbar.createDiv({ cls: "timetable-filter" });
-    const toggleButton = wrapper.createEl("button", {
+    const toggleButton = toolbar.createEl("button", {
       cls: "timetable-toolbar-button",
       text: this.activeCategoryFilter.size > 0 ? `Filter (${this.activeCategoryFilter.size})` : "Filter",
     });
+    toggleButton.addEventListener("click", () => this.showFilterModal());
+  }
 
-    const panel = wrapper.createDiv({ cls: "timetable-filter-panel" });
-    panel.hidden = !this.isFilterPanelOpen;
+  private showFilterModal(): void {
+    const overlay = this.createFloatingElement("div", "event-popup-overlay filter-modal-overlay");
+    const popup = overlay.createDiv({ cls: "event-popup filter-modal-popup" });
 
+    popup.createEl("h3", { text: "Filter by category" });
+
+    const list = popup.createDiv({ cls: "filter-modal-list" });
     const options: Array<{ id: string; label: string; color?: string }> = [
       ...this.categories.map((category) => ({
         id: category.id,
@@ -220,7 +221,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     ];
 
     options.forEach((option) => {
-      const row = panel.createEl("label", { cls: "timetable-filter-option" });
+      const row = list.createEl("label", { cls: "timetable-filter-option" });
       const checkbox = row.createEl("input", { type: "checkbox" });
       checkbox.checked = this.activeCategoryFilter.has(option.id);
       if (option.color) row.createSpan({ cls: `category-swatch is-${option.color}` });
@@ -229,31 +230,49 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
         if (checkbox.checked) this.activeCategoryFilter.add(option.id);
         else this.activeCategoryFilter.delete(option.id);
         this.render();
+        void this.persistFilter();
       });
     });
 
-    if (this.activeCategoryFilter.size > 0) {
-      const clearButton = panel.createEl("button", {
-        cls: "secondary timetable-filter-clear",
-        text: "Clear filters",
-      });
-      clearButton.addEventListener("click", () => {
-        this.activeCategoryFilter.clear();
-        this.render();
-      });
-    }
-
-    toggleButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      this.isFilterPanelOpen = !this.isFilterPanelOpen;
+    const footer = popup.createDiv({ cls: "event-popup-buttons" });
+    const clearButton = footer.createEl("button", { cls: "secondary", text: "Clear filters" });
+    clearButton.addEventListener("click", () => {
+      this.activeCategoryFilter.clear();
       this.render();
+      void this.persistFilter();
+      overlay.remove();
+      this.floatingElements.delete(overlay);
     });
-    panel.addEventListener("click", (event) => event.stopPropagation());
+    const footerActions = footer.createDiv({ cls: "event-popup-buttons-right" });
+    const closeButton = footerActions.createEl("button", { cls: "cancel", text: "Close" });
+    closeButton.addEventListener("click", () => {
+      overlay.remove();
+      this.floatingElements.delete(overlay);
+    });
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) {
+        overlay.remove();
+        this.floatingElements.delete(overlay);
+      }
+    });
+    this.containerEl.ownerDocument.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape") closeButton.click();
+      },
+      { once: true },
+    );
   }
 
   private matchesActiveFilter(routine: RoutineItem): boolean {
     if (this.activeCategoryFilter.size === 0) return true;
     return this.activeCategoryFilter.has(this.getCategoryIdFromTags(routine.tags) ?? "");
+  }
+
+  private async persistFilter(): Promise<void> {
+    const categoryIds = [...this.activeCategoryFilter].map((id) => (id === "" ? "uncategorized" : id));
+    await this.mutateFile((content) => writeFilterDirectiveInContent(content, categoryIds));
   }
 
   private renderUninitializedState(root: HTMLElement): void {

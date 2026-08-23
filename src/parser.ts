@@ -1,4 +1,5 @@
 import {
+  CODE_BLOCK_LANGUAGE,
   DAYS,
   EVENT_ID_PREFIX,
   EVENT_ID_REGEX,
@@ -44,6 +45,44 @@ export function parseFilterDirective(source: string): string[] {
     .split(",")
     .map((token) => slugifyCategoryId(token))
     .filter(Boolean);
+}
+
+export function writeFilterDirectiveInContent(content: string, categoryIds: string[]): string {
+  const lines = content.split("\n");
+  const fenceOpenRegex = new RegExp(`^\\s*\`\`\`${CODE_BLOCK_LANGUAGE}\\s*$`);
+  const startMarkerIndex = lines.findIndex((line) => line.trim() === MANAGED_REGION_START);
+
+  const fenceOpenIndex = lines.findIndex(
+    (line, index) => (startMarkerIndex === -1 || index < startMarkerIndex) && fenceOpenRegex.test(line),
+  );
+  if (fenceOpenIndex === -1) return content;
+
+  const fenceCloseIndex = lines.findIndex(
+    (line, index) => index > fenceOpenIndex && line.trim() === "```",
+  );
+  if (fenceCloseIndex === -1) return content;
+
+  const filterLineIndex = lines.findIndex(
+    (line, index) =>
+      index > fenceOpenIndex &&
+      index < fenceCloseIndex &&
+      /^\s*filter\s*:\s*\[([^\]]*)\]/im.test(line),
+  );
+
+  if (categoryIds.length === 0) {
+    if (filterLineIndex === -1) return content;
+    lines.splice(filterLineIndex, 1);
+    return lines.join("\n");
+  }
+
+  const filterLine = `filter: [${categoryIds.join(", ")}]`;
+  if (filterLineIndex !== -1) {
+    lines.splice(filterLineIndex, 1, filterLine);
+    return lines.join("\n");
+  }
+
+  lines.splice(fenceOpenIndex + 1, 0, filterLine);
+  return lines.join("\n");
 }
 
 export function slugifyEventIdSuffix(value: string): string {
