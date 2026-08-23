@@ -5,12 +5,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   getManagedRegion,
+  getManagedRegions,
   insertRoutineIntoManagedContent,
   parseFilterDirective,
   parseRoutineLine,
   slugifyEventIdSuffix,
   updateRoutineInManagedContent,
 } from "../src/parser";
+import type { RoutineItem } from "../src/types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const routineFixturePath = path.resolve(__dirname, "fixtures/weekly-routine-note.md");
@@ -128,4 +130,106 @@ void test("parseFilterDirective extracts category ids from the filter directive"
   ]);
   assert.deepEqual(parseFilterDirective(""), []);
   assert.deepEqual(parseFilterDirective("filter: []"), []);
+});
+
+void test("getManagedRegions returns every start/end pair owned by one fence", () => {
+  const lines = [
+    "```weekly-routine",
+    "```",
+    "<!-- weekly-routine:start -->",
+    "- [s-0] Monday 08:00-09:00 | Block A | #study",
+    "<!-- weekly-routine:end -->",
+    "",
+    "<!-- weekly-routine:start -->",
+    "- [s-1] Tuesday 10:00-11:00 | Block B | #work",
+    "<!-- weekly-routine:end -->",
+  ];
+
+  const regions = getManagedRegions(lines, 1);
+  assert.equal(regions.length, 2);
+  assert.equal(regions[0]?.collection.routines[0]?.title, "Block A");
+  assert.equal(regions[1]?.collection.routines[0]?.title, "Block B");
+});
+
+void test("getManagedRegions stops at the next weekly-routine fence", () => {
+  const lines = [
+    "```weekly-routine",
+    "```",
+    "<!-- weekly-routine:start -->",
+    "- [s-0] Monday 08:00-09:00 | Block A | #study",
+    "<!-- weekly-routine:end -->",
+    "",
+    "```weekly-routine",
+    "```",
+    "<!-- weekly-routine:start -->",
+    "- [s-1] Tuesday 10:00-11:00 | Block B | #work",
+    "<!-- weekly-routine:end -->",
+  ];
+
+  assert.equal(getManagedRegions(lines, 1).length, 1);
+  assert.equal(getManagedRegions(lines, 7).length, 1);
+});
+
+void test("insertRoutineIntoManagedContent appends new routines to the last block in the fence", () => {
+  const content = [
+    "```weekly-routine",
+    "```",
+    "<!-- weekly-routine:start -->",
+    "- [s-0] Monday 08:00-09:00 | Block A | #study",
+    "<!-- weekly-routine:end -->",
+    "",
+    "<!-- weekly-routine:start -->",
+    "- [s-1] Tuesday 10:00-11:00 | Block B | #work",
+    "<!-- weekly-routine:end -->",
+  ].join("\n");
+
+  const newRoutine: RoutineItem = {
+    eventId: "s-2",
+    day: 2,
+    startHour: 12,
+    startMin: 0,
+    endHour: 13,
+    endMin: 0,
+    title: "Block B Addition",
+    tags: "#work",
+  };
+
+  const updated = insertRoutineIntoManagedContent(content, newRoutine, 1);
+  const regions = getManagedRegions(updated.split("\n"), 1);
+
+  assert.equal(regions[0]?.collection.routines.length, 1);
+  assert.equal(regions[0]?.collection.routines[0]?.title, "Block A");
+  assert.equal(regions[1]?.collection.routines.length, 2);
+  assert.ok(regions[1]?.collection.routines.some((routine) => routine.title === "Block B Addition"));
+});
+
+void test("updateRoutineInManagedContent finds and edits the owning block only", () => {
+  const content = [
+    "```weekly-routine",
+    "```",
+    "<!-- weekly-routine:start -->",
+    "- [s-0] Monday 08:00-09:00 | Block A | #study",
+    "<!-- weekly-routine:end -->",
+    "",
+    "<!-- weekly-routine:start -->",
+    "- [s-1] Tuesday 10:00-11:00 | Block B | #work",
+    "<!-- weekly-routine:end -->",
+  ].join("\n");
+
+  const updatedRoutine: RoutineItem = {
+    eventId: "s-1",
+    day: 2,
+    startHour: 10,
+    startMin: 0,
+    endHour: 12,
+    endMin: 0,
+    title: "Block B Extended",
+    tags: "#work",
+  };
+
+  const updated = updateRoutineInManagedContent(content, updatedRoutine, 1);
+  const regions = getManagedRegions(updated.split("\n"), 1);
+
+  assert.equal(regions[0]?.collection.routines[0]?.title, "Block A");
+  assert.equal(regions[1]?.collection.routines[0]?.title, "Block B Extended");
 });

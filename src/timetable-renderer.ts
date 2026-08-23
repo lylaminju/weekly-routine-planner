@@ -17,7 +17,7 @@ import {
   deleteRoutineFromManagedContent,
   formatTime,
   formatTitleCase,
-  getManagedRegion,
+  getManagedRegions,
   insertRoutineIntoManagedContent,
   parseTagList,
   rewriteCategoriesInManagedContent,
@@ -79,6 +79,8 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     private readonly file: TFile,
     private readonly sourcePath: string,
     initialCategoryFilter: string[] = [],
+    private readonly fenceStartLine = -1,
+    private readonly fenceEndLine = -1,
   ) {
     super(containerEl);
     this.activeCategoryFilter = new Set(
@@ -125,9 +127,9 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
     const content = await this.plugin.app.vault.read(this.file);
     const lines = content.split("\n");
-    const managedRegion = getManagedRegion(lines);
-    this.isInitialized = managedRegion !== null;
-    this.routines = managedRegion?.collection.routines ?? [];
+    const managedRegions = getManagedRegions(lines, this.fenceEndLine);
+    this.isInitialized = managedRegions.length > 0;
+    this.routines = managedRegions.flatMap((region) => region.collection.routines);
 
     this.render();
   }
@@ -272,7 +274,9 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
   private async persistFilter(): Promise<void> {
     const categoryIds = [...this.activeCategoryFilter].map((id) => (id === "" ? "uncategorized" : id));
-    await this.mutateFile((content) => writeFilterDirectiveInContent(content, categoryIds));
+    await this.mutateFile((content) =>
+      writeFilterDirectiveInContent(content, categoryIds, this.fenceStartLine),
+    );
   }
 
   private renderUninitializedState(root: HTMLElement): void {
@@ -1002,20 +1006,22 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   }
 
   private async insertRoutine(routine: RoutineItem): Promise<void> {
-    await this.mutateFile((content) => insertRoutineIntoManagedContent(content, routine));
+    await this.mutateFile((content) => insertRoutineIntoManagedContent(content, routine, this.fenceEndLine));
   }
 
   private async updateRoutine(routine: RoutineItem): Promise<void> {
-    await this.mutateFile((content) => updateRoutineInManagedContent(content, routine));
+    await this.mutateFile((content) => updateRoutineInManagedContent(content, routine, this.fenceEndLine));
   }
 
   private async deleteRoutine(eventId: string): Promise<void> {
     this.hideContextMenu();
-    await this.mutateFile((content) => deleteRoutineFromManagedContent(content, eventId));
+    await this.mutateFile((content) => deleteRoutineFromManagedContent(content, eventId, this.fenceEndLine));
   }
 
   private async rewriteCategories(oldCategoryId: string, nextCategoryId = ""): Promise<void> {
-    await this.mutateFile((content) => rewriteCategoriesInManagedContent(content, oldCategoryId, nextCategoryId));
+    await this.mutateFile((content) =>
+      rewriteCategoriesInManagedContent(content, oldCategoryId, nextCategoryId, this.fenceEndLine),
+    );
   }
 
   private async mutateFile(transform: (content: string) => string): Promise<void> {

@@ -29,7 +29,16 @@ export default class WeeklyRoutinePlannerPlugin extends Plugin {
       }
 
       const initialCategoryFilter = parseFilterDirective(source);
-      const child = new WeeklyRoutineRenderChild(this, el, file, ctx.sourcePath, initialCategoryFilter);
+      const section = ctx.getSectionInfo(el);
+      const child = new WeeklyRoutineRenderChild(
+        this,
+        el,
+        file,
+        ctx.sourcePath,
+        initialCategoryFilter,
+        section?.lineStart ?? -1,
+        section?.lineEnd ?? -1,
+      );
       ctx.addChild(child);
     });
 
