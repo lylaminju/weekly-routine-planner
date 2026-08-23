@@ -1,6 +1,7 @@
 import { MarkdownView, Plugin, TFile } from "obsidian";
 import { CategoryStorageAdapter } from "./category-storage";
 import { CODE_BLOCK_LANGUAGE, DEFAULT_SETTINGS } from "./constants";
+import { parseFilterDirective } from "./parser";
 import { WeeklyRoutinePlannerSettingTab } from "./settings-tab";
 import { normalizeTimetableConfig } from "./timetable-config";
 import { WeeklyRoutineRenderChild } from "./timetable-renderer";
@@ -20,14 +21,15 @@ export default class WeeklyRoutinePlannerPlugin extends Plugin {
       },
     );
 
-    this.registerMarkdownCodeBlockProcessor(CODE_BLOCK_LANGUAGE, (_source, el, ctx) => {
+    this.registerMarkdownCodeBlockProcessor(CODE_BLOCK_LANGUAGE, (source, el, ctx) => {
       const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
       if (!(file instanceof TFile)) {
         el.setText("Weekly routine planner: source note not found.");
         return;
       }
 
-      const child = new WeeklyRoutineRenderChild(this, el, file, ctx.sourcePath);
+      const initialCategoryFilter = parseFilterDirective(source);
+      const child = new WeeklyRoutineRenderChild(this, el, file, ctx.sourcePath, initialCategoryFilter);
       ctx.addChild(child);
     });
 

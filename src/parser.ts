@@ -36,6 +36,24 @@ export function slugifyCategoryId(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+export function parseFilterDirective(source: string): string[] {
+  const match = source.match(/^\s*filter\s*:\s*\[([^\]]*)\]/im);
+  if (!match) return [];
+
+  return match[1]!
+    .split(",")
+    .map((token) => slugifyCategoryId(token))
+    .filter(Boolean);
+}
+
+export function slugifyEventIdSuffix(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^s-/, "")
+    .replace(/[^0-9a-z]/g, "");
+}
+
 export function normalizeCategoryRecord(record: Partial<CategoryRecord> | null | undefined): CategoryRecord | null {
   if (!record) return null;
 

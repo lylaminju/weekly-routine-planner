@@ -28,6 +28,22 @@ Each routine line is stored as:
 - [event-id] Day HH:MM-HH:MM | Title | #category-tag
 ~~~
 
+The `event-id` always starts with `s-` and must be unique within the note. When creating a routine, the "New routine" popup lets you type your own ID suffix (e.g. `s-work`, `s-gymam`) instead of the auto-suggested one — letters and digits only. Saving with an ID that's already used shows an error instead of silently overwriting it.
+
+## Filtering by Category
+
+Use the `Filter` button in the timetable toolbar to show only routines from selected categories (or only uncategorized ones). The selection is per view and resets when the note is reopened.
+
+You can also set a default filter directly in the fenced block by adding a `filter:` line listing category names or ids in brackets:
+
+~~~md
+```weekly-routine
+filter: [study, part-time-work]
+```
+~~~
+
+This preselects those categories when the timetable loads; you can still change the selection from the toolbar afterward.
+
 ## Category Management
 
 Categories are managed by the user from the timetable UI:
