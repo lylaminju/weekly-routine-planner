@@ -6,6 +6,7 @@ import {
   DAYS,
   DEFAULT_TIMETABLE_CONFIG,
   EVENT_HEIGHT_PADDING_PX,
+  EVENT_ID_PREFIX,
   MANAGED_REGION_END,
   MANAGED_REGION_START,
   MIN_EVENT_HEIGHT_PX,
@@ -16,12 +17,14 @@ import {
   deleteRoutineFromManagedContent,
   formatTime,
   formatTitleCase,
-  getManagedRegion,
+  getManagedRegions,
   insertRoutineIntoManagedContent,
   parseTagList,
   rewriteCategoriesInManagedContent,
   slugifyCategoryId,
+  slugifyEventIdSuffix,
   updateRoutineInManagedContent,
+  writeFilterDirectiveInContent,
 } from "./parser";
 import {
   fromTotalMinutes,
@@ -47,6 +50,7 @@ interface DragPoint {
 interface EventPopupDraft {
   title?: string;
   selectedCategory?: string;
+  eventId?: string;
 }
 
 interface ConfirmationDialogOptions {
@@ -67,14 +71,21 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   private draggedEventId: string | null = null;
   private floatingElements = new Set<HTMLElement>();
   private readonly mutationQueue = new SerialTaskQueue();
+  private activeCategoryFilter: Set<string>;
 
   constructor(
     private readonly plugin: WeeklyRoutinePlannerPlugin,
     containerEl: HTMLElement,
     private readonly file: TFile,
     private readonly sourcePath: string,
+    initialCategoryFilter: string[] = [],
+    private readonly fenceStartLine = -1,
+    private readonly fenceEndLine = -1,
   ) {
     super(containerEl);
+    this.activeCategoryFilter = new Set(
+      initialCategoryFilter.map((id) => (id === "uncategorized" ? "" : id)),
+    );
   }
 
   onload(): void {
@@ -88,7 +99,9 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     this.registerDomEvent(ownerDocument, "mouseup", () => {
       void this.handleMouseUp();
     });
-    this.registerDomEvent(ownerDocument, "click", () => this.hideContextMenu());
+    this.registerDomEvent(ownerDocument, "click", () => {
+      this.hideContextMenu();
+    });
 
     this.registerEvent(
       this.plugin.app.vault.on("modify", (file) => {
@@ -114,9 +127,9 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
     const content = await this.plugin.app.vault.read(this.file);
     const lines = content.split("\n");
-    const managedRegion = getManagedRegion(lines);
-    this.isInitialized = managedRegion !== null;
-    this.routines = managedRegion?.collection.routines ?? [];
+    const managedRegions = getManagedRegions(lines, this.fenceEndLine);
+    this.isInitialized = managedRegions.length > 0;
+    this.routines = managedRegions.flatMap((region) => region.collection.routines);
 
     this.render();
   }
@@ -142,6 +155,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
     const container = root.createDiv({ cls: "timetable-container" });
     const toolbar = container.createDiv({ cls: "timetable-toolbar" });
+    this.renderFilterControl(toolbar);
     toolbar.createDiv({ cls: "timetable-toolbar-spacer" });
 
     const manageCategoriesButton = toolbar.createEl("button", {
@@ -179,8 +193,90 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
 
       this.routines
         .filter((routine) => routine.day === dayIndex)
+        .filter((routine) => this.matchesActiveFilter(routine))
         .forEach((routine) => dayColumn.appendChild(this.createEventElement(routine)));
     }
+  }
+
+  private renderFilterControl(toolbar: HTMLElement): void {
+    const toggleButton = toolbar.createEl("button", {
+      cls: "timetable-toolbar-button",
+      text: this.activeCategoryFilter.size > 0 ? `Filter (${this.activeCategoryFilter.size})` : "Filter",
+    });
+    toggleButton.addEventListener("click", () => this.showFilterModal());
+  }
+
+  private showFilterModal(): void {
+    const overlay = this.createFloatingElement("div", "event-popup-overlay filter-modal-overlay");
+    const popup = overlay.createDiv({ cls: "event-popup filter-modal-popup" });
+
+    popup.createEl("h3", { text: "Filter by category" });
+
+    const list = popup.createDiv({ cls: "filter-modal-list" });
+    const options: Array<{ id: string; label: string; color?: string }> = [
+      ...this.categories.map((category) => ({
+        id: category.id,
+        label: category.label,
+        color: category.color,
+      })),
+      { id: "", label: "Uncategorized" },
+    ];
+
+    options.forEach((option) => {
+      const row = list.createEl("label", { cls: "timetable-filter-option" });
+      const checkbox = row.createEl("input", { type: "checkbox" });
+      checkbox.checked = this.activeCategoryFilter.has(option.id);
+      if (option.color) row.createSpan({ cls: `category-swatch is-${option.color}` });
+      row.createSpan({ text: option.label });
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) this.activeCategoryFilter.add(option.id);
+        else this.activeCategoryFilter.delete(option.id);
+        this.render();
+        void this.persistFilter();
+      });
+    });
+
+    const footer = popup.createDiv({ cls: "event-popup-buttons" });
+    const clearButton = footer.createEl("button", { cls: "secondary", text: "Clear filters" });
+    clearButton.addEventListener("click", () => {
+      this.activeCategoryFilter.clear();
+      this.render();
+      void this.persistFilter();
+      overlay.remove();
+      this.floatingElements.delete(overlay);
+    });
+    const footerActions = footer.createDiv({ cls: "event-popup-buttons-right" });
+    const closeButton = footerActions.createEl("button", { cls: "cancel", text: "Close" });
+    closeButton.addEventListener("click", () => {
+      overlay.remove();
+      this.floatingElements.delete(overlay);
+    });
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) {
+        overlay.remove();
+        this.floatingElements.delete(overlay);
+      }
+    });
+    this.containerEl.ownerDocument.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape") closeButton.click();
+      },
+      { once: true },
+    );
+  }
+
+  private matchesActiveFilter(routine: RoutineItem): boolean {
+    if (this.activeCategoryFilter.size === 0) return true;
+    return this.activeCategoryFilter.has(this.getCategoryIdFromTags(routine.tags) ?? "");
+  }
+
+  private async persistFilter(): Promise<void> {
+    const categoryIds = [...this.activeCategoryFilter].map((id) => (id === "" ? "uncategorized" : id));
+    await this.mutateFile((content) =>
+      writeFilterDirectiveInContent(content, categoryIds, this.fenceStartLine),
+    );
   }
 
   private renderUninitializedState(root: HTMLElement): void {
@@ -508,6 +604,16 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       text: `${DAYS[eventData.day]} ${formatTime(eventData.startHour, eventData.startMin)} - ${formatTime(eventData.endHour, eventData.endMin)}`,
     });
 
+    const idField = popup.createEl("label", { cls: "event-popup-id-field" });
+    idField.createSpan({ text: "ID" });
+    const idRow = idField.createDiv({ cls: "event-popup-id-row" });
+    idRow.createSpan({ cls: "event-popup-id-prefix", text: EVENT_ID_PREFIX });
+    const idInput = idRow.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Unique routine ID" },
+      value: draft.eventId ?? slugifyEventIdSuffix(createEventId(this.routines)),
+    });
+
     const input = popup.createEl("input", {
       type: "text",
       attr: { placeholder: "Routine title (e.g. Deep work)" },
@@ -523,10 +629,23 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
     const saveButton = rightButtons.createEl("button", { cls: "save", text: "Save" });
 
     const save = async (): Promise<void> => {
+      const suffix = slugifyEventIdSuffix(idInput.value);
+      if (!suffix) {
+        this.showError("Routine ID is required");
+        idInput.focus();
+        return;
+      }
+      const eventId = `${EVENT_ID_PREFIX}${suffix}`;
+      if (this.routines.some((routine) => routine.eventId === eventId)) {
+        this.showError(`Routine ID "${eventId}" is already used`);
+        idInput.focus();
+        return;
+      }
+
       const title = (input.value.trim() || "New event").replace(/(#[a-zA-Z0-9_-]+)/g, "").trim();
       const categoryId = categorySelect.value;
       const routine: RoutineItem = {
-        eventId: createEventId(this.routines),
+        eventId,
         title,
         tags: categoryId ? `#${categoryId}` : "",
         ...eventData,
@@ -541,6 +660,7 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       const popupDraft = {
         title: input.value,
         selectedCategory: categorySelect.value,
+        eventId: idInput.value,
       };
       overlay.remove();
       this.floatingElements.delete(overlay);
@@ -554,6 +674,13 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
       void save();
     });
 
+    idInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") void save();
+      if (event.key === "Escape") {
+        overlay.remove();
+        this.floatingElements.delete(overlay);
+      }
+    });
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") void save();
       if (event.key === "Escape") {
@@ -879,20 +1006,22 @@ export class WeeklyRoutineRenderChild extends MarkdownRenderChild {
   }
 
   private async insertRoutine(routine: RoutineItem): Promise<void> {
-    await this.mutateFile((content) => insertRoutineIntoManagedContent(content, routine));
+    await this.mutateFile((content) => insertRoutineIntoManagedContent(content, routine, this.fenceEndLine));
   }
 
   private async updateRoutine(routine: RoutineItem): Promise<void> {
-    await this.mutateFile((content) => updateRoutineInManagedContent(content, routine));
+    await this.mutateFile((content) => updateRoutineInManagedContent(content, routine, this.fenceEndLine));
   }
 
   private async deleteRoutine(eventId: string): Promise<void> {
     this.hideContextMenu();
-    await this.mutateFile((content) => deleteRoutineFromManagedContent(content, eventId));
+    await this.mutateFile((content) => deleteRoutineFromManagedContent(content, eventId, this.fenceEndLine));
   }
 
   private async rewriteCategories(oldCategoryId: string, nextCategoryId = ""): Promise<void> {
-    await this.mutateFile((content) => rewriteCategoriesInManagedContent(content, oldCategoryId, nextCategoryId));
+    await this.mutateFile((content) =>
+      rewriteCategoriesInManagedContent(content, oldCategoryId, nextCategoryId, this.fenceEndLine),
+    );
   }
 
   private async mutateFile(transform: (content: string) => string): Promise<void> {

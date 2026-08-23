@@ -1,4 +1,5 @@
 import {
+  CODE_BLOCK_LANGUAGE,
   DAYS,
   EVENT_ID_PREFIX,
   EVENT_ID_REGEX,
@@ -34,6 +35,71 @@ export function slugifyCategoryId(value: string): string {
     .replace(/['"`]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+export function parseFilterDirective(source: string): string[] {
+  const match = source.match(/^\s*filter\s*:\s*\[([^\]]*)\]/im);
+  if (!match) return [];
+
+  return match[1]!
+    .split(",")
+    .map((token) => slugifyCategoryId(token))
+    .filter(Boolean);
+}
+
+export function writeFilterDirectiveInContent(
+  content: string,
+  categoryIds: string[],
+  fenceLineHint?: number,
+): string {
+  const lines = content.split("\n");
+  const fenceOpenRegex = new RegExp(`^\\s*\`\`\`${CODE_BLOCK_LANGUAGE}\\s*$`);
+
+  let fenceOpenIndex: number;
+  if (fenceLineHint !== undefined && fenceOpenRegex.test(lines[fenceLineHint] ?? "")) {
+    fenceOpenIndex = fenceLineHint;
+  } else {
+    const startMarkerIndex = lines.findIndex((line) => line.trim() === MANAGED_REGION_START);
+    fenceOpenIndex = lines.findIndex(
+      (line, index) => (startMarkerIndex === -1 || index < startMarkerIndex) && fenceOpenRegex.test(line),
+    );
+  }
+  if (fenceOpenIndex === -1) return content;
+
+  const fenceCloseIndex = lines.findIndex(
+    (line, index) => index > fenceOpenIndex && line.trim() === "```",
+  );
+  if (fenceCloseIndex === -1) return content;
+
+  const filterLineIndex = lines.findIndex(
+    (line, index) =>
+      index > fenceOpenIndex &&
+      index < fenceCloseIndex &&
+      /^\s*filter\s*:\s*\[([^\]]*)\]/im.test(line),
+  );
+
+  if (categoryIds.length === 0) {
+    if (filterLineIndex === -1) return content;
+    lines.splice(filterLineIndex, 1);
+    return lines.join("\n");
+  }
+
+  const filterLine = `filter: [${categoryIds.join(", ")}]`;
+  if (filterLineIndex !== -1) {
+    lines.splice(filterLineIndex, 1, filterLine);
+    return lines.join("\n");
+  }
+
+  lines.splice(fenceOpenIndex + 1, 0, filterLine);
+  return lines.join("\n");
+}
+
+export function slugifyEventIdSuffix(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^s-/, "")
+    .replace(/[^0-9a-z]/g, "");
 }
 
 export function normalizeCategoryRecord(record: Partial<CategoryRecord> | null | undefined): CategoryRecord | null {
@@ -230,19 +296,53 @@ function collectRoutinesInRange(lines: string[], startIndex: number, endIndex: n
   };
 }
 
-export function getManagedRegion(lines: string[]): ManagedRegion | null {
-  const startMarkerIndex = lines.findIndex((line) => line.trim() === MANAGED_REGION_START);
-  const endMarkerIndex = lines.findIndex(
-    (line, index) => index > startMarkerIndex && line.trim() === MANAGED_REGION_END,
+const FENCE_OPEN_REGEX = new RegExp(`^\\s*\`\`\`${CODE_BLOCK_LANGUAGE}\\s*$`);
+
+// A fence "owns" every start/end marker pair up to the next weekly-routine fence (or EOF),
+// so one code block can host several independently-editable managed regions.
+export function getManagedRegions(lines: string[], anchorLine = -1): ManagedRegion[] {
+  const firstStartIndex = lines.findIndex(
+    (line, index) => index > anchorLine && line.trim() === MANAGED_REGION_START,
   );
+  if (firstStartIndex === -1) return [];
 
-  if (startMarkerIndex === -1 || endMarkerIndex === -1) return null;
+  // Boundary search starts after the first region's own start marker so a fence that
+  // precedes it (the block this region belongs to) is never mistaken for the next block.
+  let boundaryIndex = lines.length;
+  for (let index = firstStartIndex + 1; index < lines.length; index += 1) {
+    if (FENCE_OPEN_REGEX.test(lines[index] ?? "")) {
+      boundaryIndex = index;
+      break;
+    }
+  }
 
-  return {
-    startMarkerIndex,
-    endMarkerIndex,
-    collection: collectRoutinesInRange(lines, startMarkerIndex + 1, endMarkerIndex),
-  };
+  const regions: ManagedRegion[] = [];
+  let cursor = anchorLine;
+
+  while (true) {
+    const startMarkerIndex = lines.findIndex(
+      (line, index) => index > cursor && index < boundaryIndex && line.trim() === MANAGED_REGION_START,
+    );
+    if (startMarkerIndex === -1) break;
+
+    const endMarkerIndex = lines.findIndex(
+      (line, index) => index > startMarkerIndex && index < boundaryIndex && line.trim() === MANAGED_REGION_END,
+    );
+    if (endMarkerIndex === -1) break;
+
+    regions.push({
+      startMarkerIndex,
+      endMarkerIndex,
+      collection: collectRoutinesInRange(lines, startMarkerIndex + 1, endMarkerIndex),
+    });
+    cursor = endMarkerIndex;
+  }
+
+  return regions;
+}
+
+export function getManagedRegion(lines: string[], anchorLine = -1): ManagedRegion | null {
+  return getManagedRegions(lines, anchorLine)[0] ?? null;
 }
 
 export function compareRoutines(left: RoutineItem, right: RoutineItem): number {
@@ -284,13 +384,7 @@ export function buildSortedRoutineLines(routines: RoutineItem[]): string[] {
   return sortedLines;
 }
 
-export function rewriteManagedRoutines(content: string, routines: RoutineItem[]): string {
-  const lines = content.split("\n");
-  const region = getManagedRegion(lines);
-  if (!region) {
-    throw new Error("Managed timetable region not found");
-  }
-
+function spliceRegionRoutines(lines: string[], region: ManagedRegion, routines: RoutineItem[]): string[] {
   const sortedRoutineLines = buildSortedRoutineLines(routines);
   const nextLines = [...lines];
   nextLines.splice(
@@ -298,54 +392,76 @@ export function rewriteManagedRoutines(content: string, routines: RoutineItem[])
     region.endMarkerIndex - region.startMarkerIndex - 1,
     ...sortedRoutineLines,
   );
-  return nextLines.join("\n");
+  return nextLines;
 }
 
-export function insertRoutineIntoManagedContent(content: string, routine: RoutineItem): string {
-  const region = getManagedRegion(content.split("\n"));
-  if (!region) throw new Error("Managed timetable region not found");
-  const nextRoutines = [...region.collection.routines, routine];
-  return rewriteManagedRoutines(content, nextRoutines);
+export function rewriteManagedRoutines(content: string, routines: RoutineItem[], anchorLine = -1): string {
+  const lines = content.split("\n");
+  const region = getManagedRegion(lines, anchorLine);
+  if (!region) {
+    throw new Error("Managed timetable region not found");
+  }
+  return spliceRegionRoutines(lines, region, routines).join("\n");
 }
 
-export function updateRoutineInManagedContent(content: string, routine: RoutineItem): string {
-  const region = getManagedRegion(content.split("\n"));
-  if (!region) throw new Error("Managed timetable region not found");
+// A new routine has no home region yet, so it's appended to the last block in the fence's scope.
+export function insertRoutineIntoManagedContent(content: string, routine: RoutineItem, anchorLine = -1): string {
+  const lines = content.split("\n");
+  const regions = getManagedRegions(lines, anchorLine);
+  if (regions.length === 0) throw new Error("Managed timetable region not found");
 
-  const nextRoutines = region.collection.routines.map((current) =>
+  const target = regions[regions.length - 1]!;
+  const nextRoutines = [...target.collection.routines, routine];
+  return spliceRegionRoutines(lines, target, nextRoutines).join("\n");
+}
+
+export function updateRoutineInManagedContent(content: string, routine: RoutineItem, anchorLine = -1): string {
+  const lines = content.split("\n");
+  const regions = getManagedRegions(lines, anchorLine);
+  const target = regions.find((region) =>
+    region.collection.routines.some((current) => current.eventId === routine.eventId),
+  );
+  if (!target) throw new Error("Event not found by ID");
+
+  const nextRoutines = target.collection.routines.map((current) =>
     current.eventId === routine.eventId ? routine : current,
   );
-  if (!nextRoutines.some((current) => current.eventId === routine.eventId)) {
-    throw new Error("Event not found by ID");
-  }
-
-  return rewriteManagedRoutines(content, nextRoutines);
+  return spliceRegionRoutines(lines, target, nextRoutines).join("\n");
 }
 
-export function deleteRoutineFromManagedContent(content: string, eventId: string): string {
-  const region = getManagedRegion(content.split("\n"));
-  if (!region) throw new Error("Managed timetable region not found");
+export function deleteRoutineFromManagedContent(content: string, eventId: string, anchorLine = -1): string {
+  const lines = content.split("\n");
+  const regions = getManagedRegions(lines, anchorLine);
+  const target = regions.find((region) =>
+    region.collection.routines.some((routine) => routine.eventId === eventId),
+  );
+  if (!target) throw new Error("Event not found by ID");
 
-  const nextRoutines = region.collection.routines.filter((routine) => routine.eventId !== eventId);
-  if (nextRoutines.length === region.collection.routines.length) {
-    throw new Error("Event not found by ID");
-  }
-
-  return rewriteManagedRoutines(content, nextRoutines);
+  const nextRoutines = target.collection.routines.filter((routine) => routine.eventId !== eventId);
+  return spliceRegionRoutines(lines, target, nextRoutines).join("\n");
 }
 
 export function rewriteCategoriesInManagedContent(
   content: string,
   oldCategoryId: string,
   nextCategoryId = "",
+  anchorLine = -1,
 ): string {
-  const region = getManagedRegion(content.split("\n"));
-  if (!region) throw new Error("Managed timetable region not found");
+  const lines = content.split("\n");
+  const regions = getManagedRegions(lines, anchorLine);
+  if (regions.length === 0) throw new Error("Managed timetable region not found");
 
-  const nextRoutines = region.collection.routines.map((routine) => {
-    const update = replaceCategoryTag(routine.tags, oldCategoryId, nextCategoryId);
-    return update.changed ? { ...routine, tags: update.tags } : routine;
-  });
+  // Splice from the last region back to the first so earlier start/end indices stay valid.
+  let nextLines = lines;
+  [...regions]
+    .sort((a, b) => b.startMarkerIndex - a.startMarkerIndex)
+    .forEach((region) => {
+      const nextRoutines = region.collection.routines.map((routine) => {
+        const update = replaceCategoryTag(routine.tags, oldCategoryId, nextCategoryId);
+        return update.changed ? { ...routine, tags: update.tags } : routine;
+      });
+      nextLines = spliceRegionRoutines(nextLines, region, nextRoutines);
+    });
 
-  return rewriteManagedRoutines(content, nextRoutines);
+  return nextLines.join("\n");
 }
